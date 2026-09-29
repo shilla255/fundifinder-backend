@@ -1,0 +1,12 @@
+{% extends "admin/change_form.html" %}
+
+{% block submit_buttons_bottom %}
+  {% if original.status == "pending" %}
+    <div class="submit-row">
+      <p style="margin:0 1em 0 0">Set a rejection reason (and optional note) before rejecting.</p>
+      <input type="submit" value="Approve identity" name="_approve" class="default">
+      <input type="submit" value="Reject" name="_reject">
+    </div>
+  {% endif %}
+  {{ block.super }}
+{% endblock %}
