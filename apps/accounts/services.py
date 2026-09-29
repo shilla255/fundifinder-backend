@@ -15,7 +15,6 @@ from apps.notifications.sms import send_sms
 
 from .models import AuthIdentity, OTPChallenge, User
 
-
 logger = logging.getLogger(__name__)
 
 # Tolerate small clock differences between Google and this server (Docker/WSL clocks
