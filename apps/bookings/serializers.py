@@ -32,6 +32,20 @@ class ReviewSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at"]
 
 
+class PublicReviewSerializer(serializers.ModelSerializer):
+    reviewer = serializers.SerializerMethodField()
+    category = serializers.CharField(source="booking.category.slug", read_only=True)
+
+    class Meta:
+        model = Review
+        fields = ["id", "rating", "comment", "reviewer", "category", "created_at"]
+        read_only_fields = fields
+
+    def get_reviewer(self, obj) -> str:
+        name = (obj.client.full_name or "").strip()
+        return name.split()[0] if name else "Client"
+
+
 class BookingSerializer(serializers.ModelSerializer):
     """Contact details and exact coordinates are only shown to the other party
     once the fundi has accepted."""

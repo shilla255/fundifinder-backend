@@ -70,6 +70,7 @@ class SearchTests(APITestCase):
         self.assertAlmostEqual(results[0]["distance_km"], 3.3, delta=0.3)
         self.assertNotIn("base_location", results[0])
         self.assertNotIn("location", results[0])
+        self.assertEqual(results[0]["approx_location"], {"latitude": -6.78, "longitude": 39.22})
 
     def test_parent_category_includes_subcategory_fundis(self):
         fundi = make_fundi(category=self.solar)
@@ -107,3 +108,22 @@ class SearchTests(APITestCase):
 
     def test_requires_coordinates(self):
         self.assertEqual(self.client.get(self.url).status_code, 400)
+
+
+class PublicReviewsTests(APITestCase):
+    def test_lists_reviews_with_first_name_only(self):
+        from apps.bookings.models import Booking, Review
+        from apps.core.geo import make_point
+
+        fundi = make_fundi()
+        client = make_user(full_name="Rehema Juma")
+        booking = Booking.objects.create(
+            client=client, fundi=fundi, category=fundi.services.first().category,
+            description="x", job_location=make_point(*MWENGE), job_address="Mwenge",
+            status=Booking.Status.CLOSED,
+        )
+        Review.objects.create(booking=booking, fundi=fundi, client=client, rating=5, comment="Safi")
+        response = self.client.get(f"/api/v1/fundis/{fundi.id}/reviews/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["results"][0]["reviewer"], "Rehema")
+        self.assertEqual(response.data["results"][0]["rating"], 5)

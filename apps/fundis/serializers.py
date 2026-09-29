@@ -120,6 +120,7 @@ class PublicFundiSerializer(serializers.ModelSerializer):
     is_verified = serializers.SerializerMethodField()
     services = serializers.SerializerMethodField()
     distance_km = serializers.SerializerMethodField()
+    approx_location = serializers.SerializerMethodField()
 
     class Meta:
         model = FundiProfile
@@ -139,6 +140,7 @@ class PublicFundiSerializer(serializers.ModelSerializer):
             "completed_jobs_count",
             "services",
             "distance_km",
+            "approx_location",
         ]
 
     def get_is_verified(self, obj) -> bool:
@@ -147,6 +149,12 @@ class PublicFundiSerializer(serializers.ModelSerializer):
     def get_services(self, obj):
         active = [s for s in obj.services.all() if s.is_active and s.category.is_active]
         return FundiServiceSerializer(active, many=True).data
+
+    def get_approx_location(self, obj):
+        """Rounded to 2 decimals (~1 km) so maps can show the area, not the fundi's home."""
+        if obj.base_location is None:
+            return None
+        return {"latitude": round(obj.base_location.y, 2), "longitude": round(obj.base_location.x, 2)}
 
     def get_distance_km(self, obj):
         distance = getattr(obj, "distance", None)

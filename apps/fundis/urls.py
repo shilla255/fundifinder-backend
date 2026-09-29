@@ -12,5 +12,6 @@ urlpatterns = [
     path("fundi/profile/pause/", views.PauseProfileView.as_view(), name="fundi-pause"),
     path("fundis/search/", views.FundiSearchView.as_view(), name="fundi-search"),
     path("fundis/<uuid:pk>/", views.PublicFundiDetailView.as_view(), name="fundi-detail"),
+    path("fundis/<uuid:pk>/reviews/", views.PublicFundiReviewsView.as_view(), name="fundi-reviews"),
     *router.urls,
 ]

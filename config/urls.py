@@ -23,5 +23,11 @@ urlpatterns = [
 if settings.DEBUG:
     # "Log in" link on the browsable API, handy with the seed_demo accounts.
     urlpatterns += [path("api-auth/", include("rest_framework.urls"))]
+    # Email + password -> JWT, for seed_demo accounts only. Never enabled in production.
+    from rest_framework_simplejwt.views import TokenObtainPairView
+
+    urlpatterns += [
+        path("api/v1/auth/dev-login/", TokenObtainPairView.as_view(), name="auth-dev-login")
+    ]
     # Public media only (fundi photos). ID documents live in private storage.
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

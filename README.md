@@ -121,10 +121,12 @@ expire unanswered requests and auto-close completed jobs after `BOOKING_AUTO_CLO
 | POST | `/api/v1/auth/google/` | `{id_token}` from Google Sign-In → JWT pair + user |
 | POST | `/api/v1/auth/otp/request/`, `/auth/otp/verify/` | Phone login / phone verification (needs `PHONE_OTP_ENABLED`) |
 | POST | `/api/v1/auth/token/refresh/`, `/auth/logout/` | JWT refresh / blacklist refresh token |
+| POST | `/api/v1/auth/dev-login/` | **DEBUG only**: email + password → JWT, for `seed_demo` accounts |
 | GET/PATCH | `/api/v1/me/` | Own account |
 | GET | `/api/v1/categories/` | Public |
 | GET | `/api/v1/fundis/search/?lat=&lng=&radius_km=&category=` | Public, nearest first |
-| GET | `/api/v1/fundis/{id}/` | Public fundi profile |
+| GET | `/api/v1/fundis/{id}/` | Public fundi profile (includes `approx_location`, rounded to ~1 km) |
+| GET | `/api/v1/fundis/{id}/reviews/` | Public reviews (reviewer first name only) |
 | POST/GET/PATCH | `/api/v1/fundi/profile/` | Become a fundi / manage own profile (`latitude`, `longitude`) |
 | POST | `/api/v1/fundi/profile/activate/`, `/pause/` | Publish or hide own profile |
 | CRUD | `/api/v1/fundi/services/` | Own services (max `FUNDI_MAX_SERVICES`) |

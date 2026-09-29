@@ -108,6 +108,23 @@ class FundiSearchView(generics.ListAPIView):
         )
 
 
+class PublicFundiReviewsView(generics.ListAPIView):
+    """Reviews for a discoverable fundi, newest first. Reviewers are shown by first name only."""
+
+    permission_classes = [AllowAny]
+
+    def get_serializer_class(self):
+        from apps.bookings.serializers import PublicReviewSerializer
+
+        return PublicReviewSerializer
+
+    def get_queryset(self):
+        from apps.bookings.models import Review
+
+        fundi = get_object_or_404(FundiProfile.objects.discoverable(), pk=self.kwargs["pk"])
+        return Review.objects.filter(fundi=fundi).select_related("client", "booking__category")
+
+
 class PublicFundiDetailView(generics.RetrieveAPIView):
     serializer_class = PublicFundiSerializer
     permission_classes = [AllowAny]
