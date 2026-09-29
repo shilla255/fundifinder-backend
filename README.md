@@ -5,22 +5,62 @@ identity-verified local service providers ("fundis").
 
 ## Quick start
 
-Requirements: Python 3.11+, GDAL/GEOS (GeoDjango), Docker (for PostGIS) or a local PostGIS.
+### Option A: Docker (recommended, especially on Windows)
 
-```bash
-docker compose up -d db                      # PostGIS on localhost:5432
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env                         # then edit
-python manage.py migrate
-python manage.py seed_categories
-python manage.py createsuperuser             # email + password, for /admin
-python manage.py runserver
-python manage.py test apps
+Needs only [Git](https://git-scm.com/download/win) and
+[Docker Desktop](https://www.docker.com/products/docker-desktop/) (GDAL, GEOS and PostGIS come inside
+the containers). In PowerShell:
+
+```powershell
+cd "C:\Users\official pc\PROJECTS"
+git clone https://github.com/shilla255/fundifinder-backend.git
+cd fundifinder-backend
+git checkout claude/laughing-faraday-jvoj41     # until this branch is merged into main
+Copy-Item .env.example .env
+docker compose up --build                        # first build takes a few minutes
 ```
 
-GDAL on Ubuntu: `apt install gdal-bin`. On Windows/macOS set `GDAL_LIBRARY_PATH` /
-`GEOS_LIBRARY_PATH` in `.env` if Django can't find them.
+In a second terminal:
+
+```powershell
+docker compose exec web python manage.py seed_demo          # categories + verified demo fundis
+docker compose exec web python manage.py createsuperuser    # your admin login
+docker compose exec web python manage.py test apps          # run the test suite
+```
+
+Later: `git pull` to update, `docker compose up` to start, `docker compose down` to stop.
+
+### Option B: without Docker
+
+Requires Python 3.11+, PostgreSQL with PostGIS, and GDAL/GEOS (on Windows via
+[OSGeo4W](https://trac.osgeo.org/osgeo4w/); then set `GDAL_LIBRARY_PATH` / `GEOS_LIBRARY_PATH` in `.env`).
+
+```bash
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env
+python manage.py migrate
+python manage.py seed_demo
+python manage.py createsuperuser
+python manage.py runserver
+```
+
+### Try the full workflow
+
+1. **Browse the API** at http://localhost:8000/api/v1/ (the browsable API). Click *Log in* (top right) and
+   use a demo account, password `demo-pass-123`:
+   - `client@demo.fundifinder`: a client
+   - `juma@demo.fundifinder`, `neema@demo.fundifinder`, `baraka@demo.fundifinder`: verified fundis
+2. **Search**: http://localhost:8000/api/v1/fundis/search/?lat=-6.7711&lng=39.2489&radius_km=5&category=electrical
+3. **Book** as the client: POST to `/api/v1/bookings/` with
+   `{"fundi_id": "...", "category": "electrical", "description": "...", "latitude": -6.7711, "longitude": 39.2489, "job_address": "Mwenge"}`
+4. Log out, log in as that fundi, open `/api/v1/bookings/?as=fundi`, then POST to
+   `/api/v1/bookings/<id>/accept/`, `/start/`, `/complete/`.
+5. As the client, POST `{"rating": 5}` to `/api/v1/bookings/<id>/review/`. Check `/api/v1/notifications/`.
+6. **Phone sign-up**: POST a phone number to `/api/v1/auth/otp/request/`. With the console SMS backend
+   the 6-digit code is printed in the server terminal ("SMS to +255...").
+7. **Identity review**: submit `/api/v1/verification/` as a new user, then approve it at
+   http://localhost:8000/admin/ → *Identity verifications*.
 
 ## Apps
 

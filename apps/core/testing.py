@@ -30,7 +30,7 @@ def make_user(**kwargs) -> User:
 
 def make_category(slug="electrical", parent=None) -> ServiceCategory:
     category, _ = ServiceCategory.objects.get_or_create(
-        slug=slug, defaults={"name_en": slug.title(), "name_sw": slug.title(), "parent": parent}
+        slug=slug, defaults={"name_en": slug.title(), "name_sw": f"Huduma ya {slug}", "parent": parent}
     )
     return category
 

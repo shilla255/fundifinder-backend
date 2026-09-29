@@ -21,5 +21,7 @@ urlpatterns = [
 ]
 
 if settings.DEBUG:
+    # "Log in" link on the browsable API, handy with the seed_demo accounts.
+    urlpatterns += [path("api-auth/", include("rest_framework.urls"))]
     # Public media only (fundi photos). ID documents live in private storage.
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

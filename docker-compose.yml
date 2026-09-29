@@ -9,6 +9,32 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fundi -d fundifinder"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # Development server with live code reload. Windows: needs Docker Desktop only.
+  web:
+    build: .
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py runserver 0.0.0.0:8000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DJANGO_DEBUG: "true"
+      DATABASE_URL: postgis://fundi:fundi@db:5432/fundifinder
+      DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,0.0.0.0"
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    depends_on:
+      db:
+        condition: service_healthy
 
 volumes:
   pgdata:

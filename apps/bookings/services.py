@@ -63,6 +63,10 @@ def _log(booking, from_status, actor, role, note=""):
     )
 
 
+def _category_name(category, user) -> str:
+    return category.name_sw if user.preferred_language == "sw" else category.name_en
+
+
 def _notify(booking: Booking, role: str):
     kind = NOTIFY_KIND.get(booking.status)
     if not kind:
@@ -71,7 +75,6 @@ def _notify(booking: Booking, role: str):
         "ref": booking.reference,
         "fundi": booking.fundi.business_name,
         "client": booking.client.full_name or "A client",
-        "category": booking.category.name_en,
     }
     data = {"booking_id": str(booking.pk), "reference": booking.reference}
     recipients = []
@@ -80,7 +83,7 @@ def _notify(booking: Booking, role: str):
     if role != P.FUNDI:
         recipients.append(booking.fundi.user)
     for user in recipients:
-        notify(user, kind, data=data, **context)
+        notify(user, kind, data=data, category=_category_name(booking.category, user), **context)
 
 
 @transaction.atomic
@@ -122,7 +125,7 @@ def create_booking(
     context = {
         "ref": booking.reference,
         "client": client.full_name or "A client",
-        "category": category.name_en,
+        "category": _category_name(category, fundi.user),
     }
     transaction.on_commit(
         lambda: notify(

@@ -43,7 +43,8 @@ class BookingFlowTests(APITestCase):
         self.assertTrue(response.data["reference"].startswith("FF-"))
         # Before acceptance the client can't see the fundi's phone.
         self.assertNotIn("phone_number", response.data["fundi"])
-        self.assertTrue(Notification.objects.filter(user=self.fundi.user, kind="booking.requested").exists())
+        requested = Notification.objects.get(user=self.fundi.user, kind="booking.requested")
+        self.assertIn(self.category.name_sw, requested.body)  # users default to Kiswahili
 
         fundi_user = self.fundi.user
         response = self._act(booking_id, "accept", fundi_user, quoted_price_tzs=25000)
