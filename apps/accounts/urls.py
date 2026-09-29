@@ -5,6 +5,7 @@ from . import views
 
 urlpatterns = [
     path("auth/google/", views.GoogleSignInView.as_view(), name="auth-google"),
+    path("auth/firebase/", views.FirebaseSignInView.as_view(), name="auth-firebase"),
     path("auth/otp/request/", views.OTPRequestView.as_view(), name="auth-otp-request"),
     path("auth/otp/verify/", views.OTPVerifyView.as_view(), name="auth-otp-verify"),
     path("auth/token/refresh/", TokenRefreshView.as_view(), name="auth-token-refresh"),

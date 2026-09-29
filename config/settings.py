@@ -152,6 +152,9 @@ SIMPLE_JWT = {
 # OAuth client IDs whose Google ID tokens we accept (web, Android, iOS).
 GOOGLE_OAUTH_CLIENT_IDS = env.list("GOOGLE_OAUTH_CLIENT_IDS", default=[])
 
+# Firebase project whose phone-auth ID tokens we accept (Firebase sends the SMS).
+FIREBASE_PROJECT_ID = env("FIREBASE_PROJECT_ID", default="")
+
 # Phone OTP login needs a real SMS gateway in production; keep it off until then.
 PHONE_OTP_ENABLED = env.bool("PHONE_OTP_ENABLED", default=DEBUG)
 OTP_TTL_MINUTES = 5

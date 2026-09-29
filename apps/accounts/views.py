@@ -7,6 +7,7 @@ from rest_framework.views import APIView
 from . import services
 from .models import OTPChallenge
 from .serializers import (
+    FirebaseSignInSerializer,
     GoogleSignInSerializer,
     OTPRequestSerializer,
     OTPVerifySerializer,
@@ -30,6 +31,32 @@ class GoogleSignInView(APIView):
         serializer.is_valid(raise_exception=True)
         try:
             user, created = services.sign_in_with_google(serializer.validated_data["id_token"])
+        except services.AuthError as exc:
+            raise ValidationError({"detail": str(exc)}) from exc
+        return _auth_response(user, created)
+
+
+class FirebaseSignInView(APIView):
+    """Phone sign-in via Firebase Authentication (web and mobile apps).
+
+    purpose=login (default): sign in or sign up with the phone number.
+    purpose=verify_phone: attach the verified number to the signed-in account.
+    """
+
+    permission_classes = [AllowAny]
+    throttle_scope = "auth"
+
+    def post(self, request):
+        serializer = FirebaseSignInSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        token = serializer.validated_data["id_token"]
+        try:
+            if serializer.validated_data["purpose"] == OTPChallenge.Purpose.VERIFY_PHONE:
+                if not request.user.is_authenticated:
+                    raise NotAuthenticated()
+                user = services.verify_phone_with_firebase(request.user, token)
+                return Response(UserSerializer(user).data)
+            user, created = services.sign_in_with_firebase(token)
         except services.AuthError as exc:
             raise ValidationError({"detail": str(exc)}) from exc
         return _auth_response(user, created)

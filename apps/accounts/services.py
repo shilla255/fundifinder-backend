@@ -11,6 +11,7 @@ from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from apps.core.phone import normalize_phone
 from apps.notifications.sms import send_sms
 
 from .models import AuthIdentity, OTPChallenge, User
@@ -173,8 +174,8 @@ def _release_unverified_copies(phone_number: str, owner: User):
     ).exclude(pk=owner.pk).update(phone_number=None)
 
 
-def sign_in_with_otp(phone_number: str, code: str) -> tuple[User, bool]:
-    _check_otp(phone_number, code, OTPChallenge.Purpose.LOGIN, user=None)
+def _sign_in_verified_phone(phone_number: str) -> tuple[User, bool]:
+    """Log in (or sign up) someone who has just proven they own `phone_number`."""
     with transaction.atomic():
         user = User.objects.filter(
             phone_number=phone_number, phone_verified_at__isnull=False
@@ -190,8 +191,8 @@ def sign_in_with_otp(phone_number: str, code: str) -> tuple[User, bool]:
     return user, created
 
 
-def verify_phone_for_user(user: User, phone_number: str, code: str) -> User:
-    _check_otp(phone_number, code, OTPChallenge.Purpose.VERIFY_PHONE, user=user)
+def _claim_phone(user: User, phone_number: str) -> User:
+    """Attach a proven phone number to a signed-in account."""
     with transaction.atomic():
         taken = (
             User.objects.filter(phone_number=phone_number, phone_verified_at__isnull=False)
@@ -205,3 +206,50 @@ def verify_phone_for_user(user: User, phone_number: str, code: str) -> User:
         user.save(update_fields=["phone_number", "phone_verified_at"])
         _release_unverified_copies(phone_number, user)
     return user
+
+
+def sign_in_with_otp(phone_number: str, code: str) -> tuple[User, bool]:
+    _check_otp(phone_number, code, OTPChallenge.Purpose.LOGIN, user=None)
+    return _sign_in_verified_phone(phone_number)
+
+
+def verify_phone_for_user(user: User, phone_number: str, code: str) -> User:
+    _check_otp(phone_number, code, OTPChallenge.Purpose.VERIFY_PHONE, user=user)
+    return _claim_phone(user, phone_number)
+
+
+# --- Firebase phone authentication ------------------------------------------
+# The app or website verifies the number with Firebase (Firebase sends the SMS),
+# then sends us the Firebase ID token. We check it and trust its phone_number.
+
+
+def verify_firebase_phone_token(token: str) -> str:
+    """Validate a Firebase ID token and return its verified phone number (E.164)."""
+    project_id = settings.FIREBASE_PROJECT_ID
+    if not project_id:
+        raise AuthError("Phone sign-in is not configured.")
+    try:
+        claims = google_id_token.verify_firebase_token(
+            token,
+            google_requests.Request(),
+            audience=project_id,
+            clock_skew_in_seconds=GOOGLE_CLOCK_SKEW_SECONDS,
+        )
+    except ValueError as exc:
+        logger.warning("Firebase ID token rejected: %s", exc)
+        message = f"Invalid phone sign-in token: {exc}" if settings.DEBUG else "Invalid phone sign-in token."
+        raise AuthError(message) from exc
+    if not claims or claims.get("iss") != f"https://securetoken.google.com/{project_id}":
+        raise AuthError("Invalid phone sign-in token.")
+    phone = claims.get("phone_number")
+    if not phone:
+        raise AuthError("This sign-in has no verified phone number.")
+    return normalize_phone(phone)
+
+
+def sign_in_with_firebase(token: str) -> tuple[User, bool]:
+    return _sign_in_verified_phone(verify_firebase_phone_token(token))
+
+
+def verify_phone_with_firebase(user: User, token: str) -> User:
+    return _claim_phone(user, verify_firebase_phone_token(token))

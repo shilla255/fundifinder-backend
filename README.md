@@ -119,6 +119,7 @@ expire unanswered requests and auto-close completed jobs after `BOOKING_AUTO_CLO
 | Method | Path | Notes |
 | --- | --- | --- |
 | POST | `/api/v1/auth/google/` | `{id_token}` from Google Sign-In → JWT pair + user |
+| POST | `/api/v1/auth/firebase/` | `{id_token, purpose?}`: phone sign-in via Firebase Auth (web + mobile). `purpose=verify_phone` attaches the number to the signed-in user |
 | POST | `/api/v1/auth/otp/request/`, `/auth/otp/verify/` | Phone login / phone verification (needs `PHONE_OTP_ENABLED`) |
 | POST | `/api/v1/auth/token/refresh/`, `/auth/logout/` | JWT refresh / blacklist refresh token |
 | POST | `/api/v1/auth/dev-login/` | **DEBUG only**: email + password → JWT, for `seed_demo` accounts |
@@ -158,7 +159,10 @@ Cloud Storage bucket for ID documents (`django-storages`, signed URLs) + Cloud S
 
 ## Not built yet
 
-- **SMS:** implement a `BaseSMSBackend` subclass in `apps/notifications/sms.py` (Beem, NextSMS, ...) and set
+- **Phone sign-in** already works through Firebase Authentication (Firebase sends the SMS): set
+  `FIREBASE_PROJECT_ID`. The app/website verifies the number with the Firebase SDK and posts the Firebase
+  ID token to `/api/v1/auth/firebase/`.
+- **SMS for notifications:** implement a `BaseSMSBackend` subclass in `apps/notifications/sms.py` (Beem, NextSMS, ...) and set
   `SMS_BACKEND`; then set `PHONE_OTP_ENABLED=true`.
 - **NIDA API:** see *Identity verification* above.
 - Push notifications (FCM), account deletion/anonymisation, trade licences/credentials per service,

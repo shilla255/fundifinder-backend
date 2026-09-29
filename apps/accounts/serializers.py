@@ -50,6 +50,13 @@ class GoogleSignInSerializer(serializers.Serializer):
     id_token = serializers.CharField()
 
 
+class FirebaseSignInSerializer(serializers.Serializer):
+    id_token = serializers.CharField()
+    purpose = serializers.ChoiceField(
+        choices=OTPChallenge.Purpose.choices, default=OTPChallenge.Purpose.LOGIN
+    )
+
+
 class OTPRequestSerializer(serializers.Serializer):
     phone_number = PhoneNumberField()
     purpose = serializers.ChoiceField(

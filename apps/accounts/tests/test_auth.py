@@ -154,3 +154,63 @@ class PhoneNormalizationTests(APITestCase):
     def test_formats(self):
         for raw in ["0712345678", "+255712345678", "255712345678", "0712 345 678"]:
             self.assertEqual(normalize_phone(raw), "+255712345678")
+
+
+FIREBASE_CLAIMS = {
+    "iss": "https://securetoken.google.com/fundi-test",
+    "aud": "fundi-test",
+    "sub": "firebase-uid-1",
+    "phone_number": "+255712345678",
+}
+
+
+@override_settings(FIREBASE_PROJECT_ID="fundi-test")
+class FirebaseSignInTests(APITestCase):
+    url = "/api/v1/auth/firebase/"
+
+    def setUp(self):
+        cache.clear()
+
+    def _post(self, claims, **data):
+        with mock.patch(
+            "apps.accounts.services.google_id_token.verify_firebase_token", return_value=claims
+        ) as verify:
+            response = self.client.post(self.url, {"id_token": "token", **data}, format="json")
+        return response, verify
+
+    def test_signs_up_with_verified_phone(self):
+        response, verify = self._post(FIREBASE_CLAIMS)
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(verify.call_args.kwargs["audience"], "fundi-test")
+        user = User.objects.get(phone_number="+255712345678")
+        self.assertTrue(user.phone_verified)
+        self.assertIn("access", response.data)
+
+    def test_second_sign_in_returns_same_user(self):
+        self._post(FIREBASE_CLAIMS)
+        response, _ = self._post(FIREBASE_CLAIMS)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(User.objects.count(), 1)
+
+    def test_rejects_token_from_another_project(self):
+        response, _ = self._post({**FIREBASE_CLAIMS, "iss": "https://securetoken.google.com/other"})
+        self.assertEqual(response.status_code, 400)
+
+    def test_rejects_token_without_phone(self):
+        claims = {k: v for k, v in FIREBASE_CLAIMS.items() if k != "phone_number"}
+        response, _ = self._post(claims)
+        self.assertEqual(response.status_code, 400)
+
+    def test_verify_phone_for_google_user(self):
+        user = make_user(phone_number=None)
+        self.client.force_authenticate(user)
+        response, _ = self._post(FIREBASE_CLAIMS, purpose="verify_phone")
+        self.assertEqual(response.status_code, 200, response.data)
+        user.refresh_from_db()
+        self.assertEqual(user.phone_number, "+255712345678")
+        self.assertTrue(user.phone_verified)
+
+    @override_settings(FIREBASE_PROJECT_ID="")
+    def test_not_configured(self):
+        response, _ = self._post(FIREBASE_CLAIMS)
+        self.assertEqual(response.status_code, 400)
