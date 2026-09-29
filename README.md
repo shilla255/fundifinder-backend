@@ -96,10 +96,19 @@ expire unanswered requests and auto-close completed jobs after `BOOKING_AUTO_CLO
 
 ## Google Cloud setup
 
-**Google Sign-In:** in Google Cloud Console → *APIs & Services → Credentials*, create OAuth client IDs
-(Web, and Android/iOS for the mobile apps) and put them comma-separated in `GOOGLE_OAUTH_CLIENT_IDS`.
-The app signs in with Google, sends the resulting **ID token** to `/api/v1/auth/google/`, and the backend
-verifies it.
+**Google Sign-In** (project `fundi-finder-510106`, web client "Django Backend"):
+
+- The backend only needs the **client ID** (`GOOGLE_OAUTH_CLIENT_IDS`). It verifies ID tokens against
+  Google's public keys; the client secret is not used and must not be committed.
+- Mobile apps: create an *Android* client (package name + SHA-1) and an *iOS* client in the same project,
+  but request the ID token with the **web client ID as `serverClientId`** (Android Credential Manager /
+  `google_sign_in` on Flutter). The token's audience is then the web client ID, which the backend already
+  accepts. If a token carries a different audience, add that client ID to the list.
+- While the OAuth consent screen is in *Testing*, only listed test users can sign in
+  (*Google Auth Platform → Audience*). Publish the app before launch.
+
+Flow: app signs in with Google → sends the **ID token** to `POST /api/v1/auth/google/` → gets FundiFinder
+JWTs back.
 
 Suggested production stack on GCP: Cloud Run (app) + Cloud SQL for PostgreSQL with PostGIS + a private
 Cloud Storage bucket for ID documents (`django-storages`, signed URLs) + Cloud Scheduler for
