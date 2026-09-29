@@ -57,6 +57,13 @@ class GoogleSignInTests(APITestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(User.objects.count(), 0)
 
+    def test_allows_small_clock_skew(self):
+        with mock.patch(
+            "apps.accounts.services.google_id_token.verify_oauth2_token", return_value=GOOGLE_CLAIMS
+        ) as verify:
+            self.client.post(self.url, {"id_token": "token"}, format="json")
+        self.assertEqual(verify.call_args.kwargs["clock_skew_in_seconds"], 300)
+
     def test_invalid_token_is_refused(self):
         with mock.patch(
             "apps.accounts.services.google_id_token.verify_oauth2_token",

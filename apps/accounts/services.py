@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import logging
 import secrets
 from datetime import timedelta
 
@@ -13,6 +14,13 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from apps.notifications.sms import send_sms
 
 from .models import AuthIdentity, OTPChallenge, User
+
+
+logger = logging.getLogger(__name__)
+
+# Tolerate small clock differences between Google and this server (Docker/WSL clocks
+# drift, and a token "issued in the future" would otherwise be rejected).
+GOOGLE_CLOCK_SKEW_SECONDS = 300
 
 
 class AuthError(Exception):
@@ -36,10 +44,15 @@ def verify_google_id_token(token: str) -> dict:
         raise AuthError("Google sign-in is not configured.")
     try:
         return google_id_token.verify_oauth2_token(
-            token, google_requests.Request(), audience=client_ids
+            token,
+            google_requests.Request(),
+            audience=client_ids,
+            clock_skew_in_seconds=GOOGLE_CLOCK_SKEW_SECONDS,
         )
     except ValueError as exc:
-        raise AuthError("Invalid Google token.") from exc
+        logger.warning("Google ID token rejected: %s", exc)
+        message = f"Invalid Google token: {exc}" if settings.DEBUG else "Invalid Google token."
+        raise AuthError(message) from exc
 
 
 @transaction.atomic
