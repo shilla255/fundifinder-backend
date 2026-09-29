@@ -29,6 +29,12 @@ if not SECRET_KEY:
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
 CSRF_TRUSTED_ORIGINS = env.list("DJANGO_CSRF_TRUSTED_ORIGINS", default=[])
 
+# Browsers calling the API directly (Flutter web during development). The mobile apps and
+# the Next.js website call from servers/devices and don't need CORS.
+CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
+if DEBUG:
+    CORS_ALLOWED_ORIGIN_REGEXES = [r"^http://(localhost|127\.0\.0\.1)(:\d+)?$"]
+
 if env("GDAL_LIBRARY_PATH", default=""):
     GDAL_LIBRARY_PATH = env("GDAL_LIBRARY_PATH")
 if env("GEOS_LIBRARY_PATH", default=""):
@@ -42,6 +48,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "django.contrib.gis",
+    "corsheaders",
     "rest_framework",
     "rest_framework_simplejwt.token_blacklist",
     "apps.core",
@@ -56,6 +63,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.locale.LocaleMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",

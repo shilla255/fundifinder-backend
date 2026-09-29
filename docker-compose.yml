@@ -27,7 +27,8 @@ services:
     environment:
       DJANGO_DEBUG: "true"
       DATABASE_URL: postgis://fundi:fundi@db:5432/fundifinder
-      DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,0.0.0.0"
+      # "*" in development so the Android emulator (10.0.2.2) and phones on your Wi-Fi can connect.
+      DJANGO_ALLOWED_HOSTS: "*"
     ports:
       - "8000:8000"
     volumes:

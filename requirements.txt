@@ -8,3 +8,4 @@ requests>=2.32
 Pillow>=10.4
 cryptography>=43
 phonenumbers>=8.13
+django-cors-headers>=4.4
