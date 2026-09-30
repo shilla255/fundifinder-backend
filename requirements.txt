@@ -9,3 +9,4 @@ Pillow>=10.4
 cryptography>=43
 phonenumbers>=8.13
 django-cors-headers>=4.4
+opencv-python-headless>=4.9  # face detection for ID portraits (optional at runtime)

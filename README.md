@@ -70,7 +70,7 @@ python manage.py runserver
 | `accounts` | `User` (one account per person), Google Sign-In, phone OTP (off until an SMS gateway exists), JWT |
 | `catalog` | `ServiceCategory` (two levels, English + Kiswahili names) |
 | `fundis` | `FundiProfile` (optional provider side of a user), `FundiService` (categories + pricing), geo search |
-| `verification` | `IdentityVerification` (NIDA photo + selfie submissions, manual admin review), audit log |
+| `verification` | `IdentityVerification` (NIDA / licence / passport + selfie, manual review), portrait extraction, audit log |
 | `bookings` | `Booking` state machine, `BookingEvent` history, `Review` |
 | `notifications` | In-app `Notification`, SMS backend interface (console for now), Swahili/English texts |
 
@@ -90,17 +90,28 @@ python manage.py runserver
   number can be approved on only one account (DB constraint). ID photos live in private storage and are
   viewable only by staff through the admin.
 
-## Identity verification (manual for now)
+## Identity verification and fundi photos
 
-1. User `POST /api/v1/verification/` (multipart): `nida_number`, `full_name`, `date_of_birth`,
-   `id_front_image`, optional `id_back_image`, `selfie_image`.
-2. Staff open **Admin → Identity verifications**, filter by *Pending*, compare the photos and details
-   (the page flags duplicate NIDA numbers and whether the birth date matches the NIDA number), then click
-   **Approve identity** or set a rejection reason and click **Reject**.
-3. The user is notified; a rejected user can resubmit. Every change is logged in `VerificationEvent`.
+Accepted documents, in priority order: **NIDA card → driving licence → passport**.
 
-When NIDA API access is available, add an automated check that sets `method="nida_api"` and calls the
-same `approve` / `reject` services.
+1. User `POST /api/v1/verification/` (multipart): `document_type` (`nida` default, `driving_licence`,
+   `passport`), `document_number` (older clients may send `nida_number`), `full_name`, `date_of_birth`,
+   `id_front_image`, optional `id_back_image`, `selfie_image`. Numbers are checked per type (NIDA: 20
+   digits; licence: 8–12 characters; passport: e.g. `AB1234567`), encrypted, and hashed for duplicates.
+2. On submit the backend cuts the holder's **portrait** from the document (`apps/verification/portrait.py`):
+   - `NidaApiSource` — the official NIDA photo (stub until API access exists);
+   - `DocumentCropSource` — face detection with OpenCV's YuNet model (bundled in
+     `apps/verification/assets/`, MIT), falling back to the fixed photo position for that document type.
+3. Staff open **Admin → Identity verifications**, compare document, selfie and portrait (fix the crop box and
+   click *Re-cut portrait* if needed), then **Approve identity** or **Reject**.
+4. On approval the portrait becomes `User.portrait` — **the only photo a fundi shows publicly**. There is no
+   custom avatar upload. A verified person may later submit a *better* document (passport → licence → NIDA);
+   when approved it replaces the old one and its portrait; a rejected upgrade keeps the current document.
+5. Every change is logged in `VerificationEvent`. Revoking removes the portrait.
+
+`python manage.py backfill_portraits` creates portraits for verifications approved before this existed.
+When NIDA API access is available, implement `NidaApiSource.fetch` and add an automated check that sets
+`method="nida_api"` and calls the same `approve` / `reject` services.
 
 ## Booking lifecycle
 
@@ -135,7 +146,11 @@ expire unanswered requests and auto-close completed jobs after `BOOKING_AUTO_CLO
 | POST/GET/PATCH | `/api/v1/fundi/profile/` | Become a fundi / manage own profile (`latitude`, `longitude`) |
 | POST | `/api/v1/fundi/profile/activate/`, `/pause/` | Publish or hide own profile |
 | CRUD | `/api/v1/fundi/services/` | Own services (max `FUNDI_MAX_SERVICES`) |
-| GET/POST | `/api/v1/verification/` | Own identity status / submit documents |
+| PATCH | `/api/v1/fundi/profile/` (multipart) | `cover_photo` (or `null` to remove). The avatar is not uploadable |
+| GET/POST/PATCH/DELETE | `/api/v1/fundi/work-photos/` | Own portfolio (max 12): multipart `image`, `caption`, `category` |
+| POST | `/api/v1/fundi/work-photos/reorder/` | `{"ids": [...]}` — order clients see |
+| GET | `/api/v1/fundi/stats/` | Dashboard: views, saves, rating, reply time, acceptance, earnings, last 6 months |
+| GET/POST | `/api/v1/verification/` | Own identity status (`current_document`, `can_submit`) / submit a document |
 | GET/POST | `/api/v1/bookings/` | `?as=client` (default) or `?as=fundi`, `?status=` |
 | POST | `/api/v1/bookings/{id}/accept\|decline\|start\|complete\|confirm\|cancel\|dispute/` | `note` required for cancel/dispute |
 | POST | `/api/v1/bookings/{id}/review/` | Client, after completion |

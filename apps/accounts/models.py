@@ -60,6 +60,9 @@ class User(AbstractBaseUser, PermissionsMixin):
     phone_verified_at = models.DateTimeField(null=True, blank=True)
     full_name = models.CharField(max_length=150, blank=True)
     avatar_url = models.URLField(blank=True)
+    # The face from the person's approved ID document (NIDA > driving licence > passport).
+    # This is the only photo fundis show publicly; nobody uploads a custom avatar.
+    portrait = models.ImageField(upload_to="portraits/", blank=True, editable=False)
     preferred_language = models.CharField(
         max_length=2, choices=Language.choices, default=Language.SWAHILI
     )

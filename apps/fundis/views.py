@@ -2,10 +2,12 @@ from django.conf import settings
 from django.contrib.gis.db.models.functions import Distance
 from django.contrib.gis.measure import D
 from django.db import IntegrityError
-from django.db.models import F, Prefetch, Q
+from django.db.models import F, OuterRef, Prefetch, Q, Subquery
 from django.shortcuts import get_object_or_404
-from rest_framework import generics, status, viewsets
+from rest_framework import generics, mixins, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -19,6 +21,7 @@ from .serializers import (
     FundiProfileSerializer,
     FundiSearchSerializer,
     FundiServiceSerializer,
+    MyWorkPhotoSerializer,
     PublicFundiDetailSerializer,
     PublicFundiSerializer,
     TopFundisSerializer,
@@ -31,6 +34,8 @@ class MyFundiProfileView(generics.RetrieveUpdateAPIView):
     serializer_class = FundiProfileSerializer
     permission_classes = [IsAuthenticated]
     http_method_names = ["get", "post", "patch"]
+    # JSON for details, multipart for the cover photo.
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     def get_object(self):
         profile = FundiProfile.objects.filter(user=self.request.user).first()
@@ -86,6 +91,61 @@ class MyServicesViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(fundi=self.request.user.fundi_profile)
+
+
+class MyWorkPhotosViewSet(
+    mixins.ListModelMixin,
+    mixins.CreateModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
+    """The fundi's portfolio: upload (multipart `image`, `caption`, `category`), edit captions,
+    delete, and POST /reorder/ {"ids": [...]} to set the order clients see."""
+
+    serializer_class = MyWorkPhotoSerializer
+    permission_classes = [IsAuthenticated, HasFundiProfile]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    pagination_class = None
+    http_method_names = ["get", "post", "patch", "delete"]
+
+    def get_queryset(self):
+        return WorkPhoto.objects.filter(fundi__user=self.request.user).select_related("category")
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        if self.request.user.is_authenticated and hasattr(self.request.user, "fundi_profile"):
+            context["fundi"] = self.request.user.fundi_profile
+        return context
+
+    def perform_create(self, serializer):
+        fundi = self.request.user.fundi_profile
+        last = fundi.work_photos.order_by("-sort_order").values_list("sort_order", flat=True).first()
+        serializer.save(fundi=fundi, sort_order=0 if last is None else last + 1)
+
+    def perform_destroy(self, instance):
+        instance.image.delete(save=False)
+        instance.thumbnail.delete(save=False)
+        instance.delete()
+
+    @action(detail=False, methods=["post"])
+    def reorder(self, request):
+        ids = [str(i) for i in request.data.get("ids", [])]
+        photos = {str(p.pk): p for p in self.get_queryset()}
+        if sorted(ids) != sorted(photos):
+            raise ValidationError({"ids": "Send every photo id exactly once."})
+        for order, pk in enumerate(ids):
+            WorkPhoto.objects.filter(pk=pk).update(sort_order=order)
+        return Response(self.get_serializer(self.get_queryset().order_by("sort_order"), many=True).data)
+
+
+class MyFundiStatsView(APIView):
+    """Numbers for the fundi dashboard."""
+
+    permission_classes = [IsAuthenticated, HasFundiProfile]
+
+    def get(self, request):
+        return Response(services.stats(request.user.fundi_profile))
 
 
 class _PublicFundiMixin:
@@ -217,8 +277,10 @@ class MyFavoritesView(_PublicFundiMixin, generics.ListAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        ids = FavoriteFundi.objects.filter(user=self.request.user).values("fundi_id")
-        return self.optimise(FundiProfile.objects.bookable().with_score().filter(pk__in=ids))
+        saved = FavoriteFundi.objects.filter(user=self.request.user, fundi=OuterRef("pk")).values("created_at")[:1]
+        return self.optimise(
+            FundiProfile.objects.bookable().with_score().annotate(saved_at=Subquery(saved)).filter(saved_at__isnull=False)
+        ).order_by("-saved_at")  # most recently saved first
 
     def post(self, request):
         fundi = get_object_or_404(FundiProfile.objects.bookable(), pk=request.data.get("fundi_id"))

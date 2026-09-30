@@ -140,7 +140,7 @@ class FeaturedReviewsView(generics.ListAPIView):
         candidates = list(
             Review.objects.filter(rating__gte=4, fundi__in=FundiProfile.objects.bookable())
             .exclude(comment="")
-            .select_related("client", "fundi", "booking__category__parent")
+            .select_related("client", "fundi__user", "booking__category__parent")
             .order_by("-created_at")[:200]
         )
         random.Random(timezone.localdate().toordinal()).shuffle(candidates)

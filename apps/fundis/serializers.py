@@ -48,6 +48,14 @@ class FundiServiceSerializer(serializers.ModelSerializer):
         return attrs
 
 
+def portrait_url(user, request) -> str | None:
+    """A fundi's photo is the face from their approved ID document — never a custom upload."""
+    if not user.portrait:
+        return None
+    url = user.portrait.url
+    return request.build_absolute_uri(url) if request else url
+
+
 class FundiProfileSerializer(serializers.ModelSerializer):
     """The fundi's own view of their profile, including their exact location."""
 
@@ -61,6 +69,9 @@ class FundiProfileSerializer(serializers.ModelSerializer):
     services = FundiServiceSerializer(many=True, read_only=True)
     identity_status = serializers.CharField(source="user.identity_status", read_only=True)
     is_discoverable = serializers.SerializerMethodField()
+    photo = serializers.SerializerMethodField()
+    badges = serializers.SerializerMethodField()
+    work_photos = serializers.SerializerMethodField()
 
     class Meta:
         model = FundiProfile
@@ -70,6 +81,7 @@ class FundiProfileSerializer(serializers.ModelSerializer):
             "bio",
             "years_experience",
             "photo",
+            "cover_photo",
             "latitude",
             "longitude",
             "location",
@@ -86,6 +98,10 @@ class FundiProfileSerializer(serializers.ModelSerializer):
             "rating_avg",
             "rating_count",
             "completed_jobs_count",
+            "profile_views",
+            "avg_response_minutes",
+            "badges",
+            "work_photos",
             "services",
             "created_at",
         ]
@@ -95,13 +111,30 @@ class FundiProfileSerializer(serializers.ModelSerializer):
             "rating_avg",
             "rating_count",
             "completed_jobs_count",
+            "profile_views",
+            "avg_response_minutes",
             "created_at",
         ]
+        extra_kwargs = {"cover_photo": {"required": False, "allow_null": True}}
 
     def get_location(self, obj):
         if obj.base_location is None:
             return None
         return {"latitude": obj.base_location.y, "longitude": obj.base_location.x}
+
+    def get_photo(self, obj) -> str | None:
+        return portrait_url(obj.user, self.context.get("request"))
+
+    def get_badges(self, obj) -> list[str]:
+        return badges_for(obj)
+
+    def get_work_photos(self, obj):
+        return MyWorkPhotoSerializer(obj.work_photos.all(), many=True, context=self.context).data
+
+    def validate_cover_photo(self, image):
+        if image and image.size > settings.VERIFICATION_MAX_IMAGE_MB * 1024 * 1024:
+            raise serializers.ValidationError(f"Photos must be smaller than {settings.VERIFICATION_MAX_IMAGE_MB} MB.")
+        return image
 
     def get_is_discoverable(self, obj) -> bool:
         return FundiProfile.objects.discoverable().filter(pk=obj.pk).exists()
@@ -112,6 +145,38 @@ class FundiProfileSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Send latitude and longitude together.")
         if lat is not None:
             attrs["base_location"] = make_point(lat, lng)
+        return attrs
+
+
+class MyWorkPhotoSerializer(serializers.ModelSerializer):
+    """A fundi managing their own portfolio."""
+
+    category = serializers.SlugRelatedField(
+        slug_field="slug", queryset=ServiceCategory.objects.filter(is_active=True), required=False, allow_null=True
+    )
+
+    class Meta:
+        model = WorkPhoto
+        fields = ["id", "image", "thumbnail", "caption", "category", "sort_order", "created_at"]
+        read_only_fields = ["id", "thumbnail", "sort_order", "created_at"]
+
+    def validate_image(self, image):
+        limit = settings.VERIFICATION_MAX_IMAGE_MB * 1024 * 1024
+        if image.size > limit:
+            raise serializers.ValidationError(f"Photos must be smaller than {settings.VERIFICATION_MAX_IMAGE_MB} MB.")
+        return image
+
+    def validate(self, attrs):
+        if self.instance is None:
+            fundi = self.context["fundi"]
+            if "image" not in attrs:
+                raise serializers.ValidationError({"image": "Choose a photo."})
+            if fundi.work_photos.count() >= WorkPhoto.MAX_PER_FUNDI:
+                raise serializers.ValidationError(
+                    {"detail": f"You can show up to {WorkPhoto.MAX_PER_FUNDI} photos. Remove one first."}
+                )
+        elif "image" in attrs:
+            raise serializers.ValidationError({"image": "Upload a new photo instead of replacing this one."})
         return attrs
 
 
@@ -151,6 +216,7 @@ class PublicFundiSerializer(serializers.ModelSerializer):
     min_price_tzs = serializers.SerializerMethodField()
     is_favorite = serializers.SerializerMethodField()
     member_since = serializers.DateTimeField(source="created_at", read_only=True)
+    photo = serializers.SerializerMethodField()
 
     class Meta:
         model = FundiProfile
@@ -191,6 +257,9 @@ class PublicFundiSerializer(serializers.ModelSerializer):
     def get_services(self, obj):
         active = [s for s in obj.services.all() if s.is_active and s.category.is_active]
         return FundiServiceSerializer(active, many=True).data
+
+    def get_photo(self, obj) -> str | None:
+        return portrait_url(obj.user, self.context.get("request"))
 
     def get_cover_image(self, obj):
         """The fundi's cover photo, or their first work photo as a fallback."""

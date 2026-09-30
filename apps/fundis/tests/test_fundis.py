@@ -1,4 +1,5 @@
 from django.test import override_settings
+from django.utils import timezone
 from rest_framework.test import APITestCase
 
 from apps.accounts.models import User
@@ -215,3 +216,86 @@ class DiscoveryTests(APITestCase):
         self.assertTrue(self.client.get(f"/api/v1/fundis/{self.cheap.id}/").data["is_favorite"])
         self.assertEqual(self.client.delete(f"/api/v1/me/favorites/{self.cheap.id}/").status_code, 204)
         self.assertEqual(self.client.get("/api/v1/me/favorites/").data["results"], [])
+
+
+@override_settings(STORAGES=IN_MEMORY_STORAGES)
+class FundiToolsTests(APITestCase):
+    """Phase 2: the fundi manages their portfolio and cover photo and sees their numbers."""
+
+    def setUp(self):
+        self.user = make_user()
+        self.fundi = make_fundi(self.user)
+        self.client.force_authenticate(self.user)
+
+    def _upload(self, caption="Kitchen wiring"):
+        from apps.core.testing import image_file
+
+        return self.client.post(
+            "/api/v1/fundi/work-photos/",
+            {"image": image_file("job.jpg"), "caption": caption, "category": "electrical"},
+            format="multipart",
+        )
+
+    def test_upload_edit_reorder_delete_work_photos(self):
+        first = self._upload("First").data
+        second = self._upload("Second").data
+        self.assertTrue(first["thumbnail"])
+        self.assertEqual([first["sort_order"], second["sort_order"]], [0, 1])
+
+        self.client.patch(f"/api/v1/fundi/work-photos/{first['id']}/", {"caption": "New caption"}, format="json")
+        response = self.client.post(
+            "/api/v1/fundi/work-photos/reorder/", {"ids": [second["id"], first["id"]]}, format="json"
+        )
+        self.assertEqual([p["caption"] for p in response.data], ["Second", "New caption"])
+        self.assertEqual(
+            self.client.post("/api/v1/fundi/work-photos/reorder/", {"ids": [first["id"]]}, format="json").status_code,
+            400,
+        )
+        self.assertEqual(self.client.delete(f"/api/v1/fundi/work-photos/{first['id']}/").status_code, 204)
+        self.assertEqual(len(self.client.get("/api/v1/fundi/work-photos/").data), 1)
+
+    def test_photo_limit_and_other_fundis_photos_are_off_limits(self):
+        from apps.fundis.models import WorkPhoto
+
+        for _ in range(WorkPhoto.MAX_PER_FUNDI):
+            self.assertEqual(self._upload().status_code, 201)
+        self.assertEqual(self._upload().status_code, 400)
+
+        photo = WorkPhoto.objects.first()
+        other = make_user()
+        make_fundi(other, location=MWENGE)
+        self.client.force_authenticate(other)
+        self.assertEqual(self.client.delete(f"/api/v1/fundi/work-photos/{photo.pk}/").status_code, 404)
+
+    def test_cover_photo_upload_and_no_custom_avatar(self):
+        from apps.core.testing import image_file
+
+        response = self.client.patch(
+            "/api/v1/fundi/profile/", {"cover_photo": image_file("cover.jpg"), "photo": image_file("me.jpg")},
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertTrue(response.data["cover_photo"])
+        self.assertIsNone(response.data["photo"])  # avatars only come from the ID document
+        public = self.client.get(f"/api/v1/fundis/{self.fundi.pk}/").data
+        self.assertTrue(public["cover_image"].endswith(".jpg"))
+
+    def test_stats(self):
+        from apps.bookings.models import Booking
+
+        client = make_user()
+        category = self.fundi.services.first().category
+        for status, price in [("closed", 20000), ("closed", 30000), ("requested", None), ("declined", None)]:
+            Booking.objects.create(
+                client=client, fundi=self.fundi, category=category, description="x",
+                job_location=self.fundi.base_location, job_address="Sinza", status=status,
+                final_price_tzs=price, completed_at=timezone.now() if status == "closed" else None,
+                responded_at=timezone.now() if status != "requested" else None,
+            )
+        data = self.client.get("/api/v1/fundi/stats/").data
+        self.assertEqual(data["earnings_this_month_tzs"], 50000)
+        self.assertEqual(data["earnings_total_tzs"], 50000)
+        self.assertEqual(data["requests_waiting"], 1)
+        self.assertEqual(data["acceptance_rate"], 0.67)
+        self.assertEqual(len(data["months"]), 6)
+        self.assertEqual(data["months"][-1]["jobs"], 2)

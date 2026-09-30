@@ -23,23 +23,27 @@ class IdentityVerificationAdmin(admin.ModelAdmin):
     list_display = [
         "full_name",
         "user",
-        "nida_last4",
+        "document_type",
+        "document_last4",
         "status",
-        "is_duplicate_nida",
+        "is_duplicate_document",
         "created_at",
         "reviewed_by",
     ]
-    list_filter = ["status", "is_duplicate_nida", "method"]
-    search_fields = ["full_name", "nida_last4", "user__email", "user__phone_number"]
+    list_filter = ["status", "document_type", "is_duplicate_document", "method"]
+    search_fields = ["full_name", "document_last4", "user__email", "user__phone_number"]
     ordering = ["created_at"]
     exclude = ["id_front_image", "id_back_image", "selfie_image"]
     readonly_fields = [
         "user",
+        "document_type",
         "full_name",
         "date_of_birth",
-        "masked_nida",
+        "masked_number",
         "dob_hint",
-        "is_duplicate_nida",
+        "is_duplicate_document",
+        "portrait_preview",
+        "portrait_method",
         "id_front",
         "id_back",
         "selfie",
@@ -91,16 +95,40 @@ class IdentityVerificationAdmin(admin.ModelAdmin):
     def selfie(self, obj):
         return self._image(obj, "selfie_image")
 
-    @admin.display(description="NIDA number")
-    def masked_nida(self, obj):
-        n = obj.nida_number
-        return f"{n[:8]}-•••••-•••••-{n[-2:]}" if len(n) == 20 else f"…{obj.nida_last4}"
+    @admin.display(description="Document number")
+    def masked_number(self, obj):
+        n = obj.document_number
+        if obj.document_type == IdentityVerification.DocumentType.NIDA and len(n) == 20:
+            return f"{n[:8]}-•••••-•••••-{n[-2:]}"
+        return f"{'•' * max(len(n) - 4, 0)}{obj.document_last4}"
 
     @admin.display(description="Birth date matches NIDA number", boolean=True)
     def dob_hint(self, obj):
         return obj.dob_matches_nida
 
+    @admin.display(description="Portrait (public photo once approved)")
+    def portrait_preview(self, obj):
+        box = obj.portrait_box or ["", "", "", ""]
+        img = format_html('<img src="{}" style="height:160px;border-radius:16px">', obj.portrait.url) if obj.portrait else "—"
+        return format_html(
+            '{}<p style="margin-top:8px">Crop box on the ID front (left, top, width, height as 0–1 fractions):</p>'
+            '<input name="_portrait_box" value="{}" style="width:260px"> '
+            '<input type="submit" name="_recrop" value="Re-cut portrait">',
+            img,
+            ", ".join(str(v) for v in box),
+        )
+
     def response_change(self, request, obj):
+        if "_recrop" in request.POST:
+            try:
+                box = [float(v) for v in request.POST.get("_portrait_box", "").split(",")]
+                if len(box) != 4:
+                    raise ValueError
+                services.recrop_portrait(obj, box)
+                self.message_user(request, "Portrait updated.")
+            except (ValueError, services.VerificationError):
+                self.message_user(request, "Enter four numbers between 0 and 1, e.g. 0.03, 0.24, 0.3, 0.62", level=messages.ERROR)
+            return HttpResponseRedirect(request.path)
         action = "_approve" if "_approve" in request.POST else "_reject" if "_reject" in request.POST else None
         if action is None:
             return super().response_change(request, obj)

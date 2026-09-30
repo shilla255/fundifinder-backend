@@ -56,12 +56,12 @@ class FeaturedReviewSerializer(PublicReviewSerializer):
         fields = [*PublicReviewSerializer.Meta.fields, "fundi"]
 
     def get_fundi(self, obj):
-        request = self.context.get("request")
-        photo = obj.fundi.photo
+        from apps.fundis.serializers import portrait_url
+
         return {
             "id": str(obj.fundi_id),
             "business_name": obj.fundi.business_name,
-            "photo": (request.build_absolute_uri(photo.url) if request else photo.url) if photo else None,
+            "photo": portrait_url(obj.fundi.user, self.context.get("request")),
         }
 
 

@@ -21,10 +21,16 @@ class MyVerificationView(APIView):
 
     def get(self, request):
         latest = request.user.identity_verifications.first()
+        current = services.current_document(request.user)
+        ctx = {"request": request}
         return Response(
             {
                 "identity_status": request.user.identity_status,
-                "latest_submission": VerificationStatusSerializer(latest).data if latest else None,
+                "latest_submission": VerificationStatusSerializer(latest, context=ctx).data if latest else None,
+                # The approved document the public photo comes from.
+                "current_document": VerificationStatusSerializer(current, context=ctx).data if current else None,
+                # Documents this person may submit now (verified people can only upgrade).
+                "can_submit": services.submittable_documents(request.user),
             }
         )
 
@@ -36,7 +42,8 @@ class MyVerificationView(APIView):
         except services.VerificationError as exc:
             raise ValidationError({"detail": str(exc)}) from exc
         return Response(
-            VerificationStatusSerializer(verification).data, status=status.HTTP_201_CREATED
+            VerificationStatusSerializer(verification, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
         )
 
 

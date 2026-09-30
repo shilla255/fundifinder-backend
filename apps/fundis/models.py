@@ -84,7 +84,6 @@ class FundiProfile(BaseModel):
     business_name = models.CharField(max_length=120)
     bio = models.TextField(blank=True)
     years_experience = models.PositiveSmallIntegerField(default=0)
-    photo = models.ImageField(upload_to="fundis/photos/", blank=True)
     cover_photo = models.ImageField(upload_to="fundis/covers/", blank=True)
 
     # Where the fundi works from. Never exposed to clients; they only see distance.

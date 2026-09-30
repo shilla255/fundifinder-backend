@@ -94,3 +94,84 @@ def work_photo(category_slug: str, seed: int, size=(1200, 900)) -> bytes:
     out = io.BytesIO()
     img.convert("RGB").save(out, format="JPEG", quality=84, optimize=True, progressive=True)
     return out.getvalue()
+
+
+# Palette per person (portrait background, clothing).
+PEOPLE = [
+    ((231, 214, 196), (7, 114, 70)),
+    ((214, 226, 240), (30, 58, 138)),
+    ((240, 224, 206), (120, 53, 15)),
+    ((222, 234, 226), (15, 118, 110)),
+    ((236, 222, 240), (76, 29, 149)),
+    ((242, 230, 210), (180, 83, 9)),
+]
+SKIN = [(141, 85, 36), (120, 72, 33), (98, 58, 28), (160, 102, 56), (111, 66, 34)]
+
+CARD_STYLES = {
+    # (header colour, header text, background)
+    "nida": ((22, 101, 52), "JAMHURI YA MUUNGANO WA TANZANIA · NIDA", (236, 244, 238)),
+    "driving_licence": ((30, 64, 175), "TANZANIA DRIVING LICENCE", (234, 240, 250)),
+    "passport": ((30, 41, 59), "UNITED REPUBLIC OF TANZANIA · PASSPORT", (244, 241, 234)),
+}
+
+
+def _draw_person(size: int, seed: int) -> Image.Image:
+    """A simple illustrated head-and-shoulders portrait (no real person)."""
+    rng = random.Random(seed)
+    bg, shirt = PEOPLE[rng.randrange(len(PEOPLE))]
+    skin = SKIN[rng.randrange(len(SKIN))]
+    img = Image.new("RGB", (size, size), bg)
+    d = ImageDraw.Draw(img)
+    s = size
+    d.ellipse((s * 0.14, s * 0.70, s * 0.86, s * 1.35), fill=shirt)  # shoulders
+    d.rectangle((s * 0.43, s * 0.58, s * 0.57, s * 0.76), fill=skin)  # neck
+    d.ellipse((s * 0.30, s * 0.20, s * 0.70, s * 0.66), fill=skin)  # head
+    hair = (25, 20, 18)
+    if rng.random() < 0.5:
+        d.chord((s * 0.29, s * 0.17, s * 0.71, s * 0.52), 180, 360, fill=hair)  # short hair
+    else:
+        d.ellipse((s * 0.26, s * 0.12, s * 0.74, s * 0.40), fill=hair)  # headwrap / hair
+    eye = (30, 25, 22)
+    for ex in (0.42, 0.58):
+        d.ellipse((s * (ex - 0.025), s * 0.40, s * (ex + 0.025), s * 0.45), fill=eye)
+    d.arc((s * 0.43, s * 0.46, s * 0.57, s * 0.56), 20, 160, fill=(90, 40, 30), width=max(2, s // 90))
+    return img
+
+
+def id_card(document_type: str, full_name: str, number: str, seed: int, size=(1000, 630)) -> bytes:
+    """A mock ID document with the holder's photo where the real document prints it.
+    The photo box matches `apps.verification.portrait.TEMPLATES`, so the portrait crop finds it."""
+    from apps.verification.portrait import TEMPLATES
+
+    header, title, background = CARD_STYLES.get(document_type, CARD_STYLES["nida"])
+    w, h = size
+    card = Image.new("RGB", size, background)
+    d = ImageDraw.Draw(card)
+    font = ImageFont.load_default(size=26)
+    small = ImageFont.load_default(size=22)
+    if document_type == "passport":
+        d.rectangle((0, 0, w, int(h * 0.46)), fill=(214, 206, 190))  # visa page half
+        d.text((40, 40), title, fill=header, font=font)
+    else:
+        d.rectangle((0, 0, w, int(h * 0.17)), fill=header)
+        d.text((40, int(h * 0.06)), title, fill="white", font=font)
+
+    left, top, bw, bh = TEMPLATES.get(document_type, TEMPLATES["nida"])
+    box = (int(left * w), int(top * h), int((left + bw) * w), int((top + bh) * h))
+    bw_px, bh_px = box[2] - box[0], box[3] - box[1]
+    side = min(bw_px, bh_px)
+    person = _draw_person(side, seed)
+    # Fill the whole photo box, like a real ID photo, with the person at the bottom.
+    photo = Image.new("RGB", (bw_px, bh_px), person.getpixel((2, 2)))
+    photo.paste(person, ((bw_px - side) // 2, bh_px - side))
+    card.paste(photo, box[:2])
+
+    x = box[2] + 40
+    y = box[1] + 10
+    for label, value in (("Jina / Name", full_name), ("Namba / Number", number), ("Uraia", "Mtanzania")):
+        d.text((x, y), label, fill=(90, 100, 95), font=small)
+        d.text((x, y + 28), value, fill=(20, 26, 22), font=font)
+        y += 90
+    out = io.BytesIO()
+    card.save(out, format="JPEG", quality=85)
+    return out.getvalue()

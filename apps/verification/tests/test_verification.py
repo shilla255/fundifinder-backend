@@ -41,11 +41,13 @@ class VerificationTests(APITestCase):
     def test_submit_stores_encrypted_nida_and_sets_pending(self):
         response = self._submit()
         self.assertEqual(response.status_code, 201, response.data)
-        self.assertEqual(response.data["nida_last4"], "0123")
+        self.assertEqual(response.data["document_last4"], "0123")
+        self.assertEqual(response.data["document_type"], "nida")
         self.assertNotIn("nida_number", response.data)
+        self.assertNotIn("document_number", response.data)
         verification = IV.objects.get()
-        self.assertNotIn(NIDA_DIGITS, verification.nida_number_encrypted)
-        self.assertEqual(verification.nida_number, NIDA_DIGITS)
+        self.assertNotIn(NIDA_DIGITS, verification.document_number_encrypted)
+        self.assertEqual(verification.document_number, NIDA_DIGITS)
         self.assertTrue(verification.dob_matches_nida)
         self.user.refresh_from_db()
         self.assertEqual(self.user.identity_status, User.IdentityStatus.PENDING)
@@ -92,7 +94,7 @@ class VerificationTests(APITestCase):
         other = make_user()
         self._submit(other)
         duplicate = IV.objects.get(user=other)
-        self.assertTrue(duplicate.is_duplicate_nida)
+        self.assertTrue(duplicate.is_duplicate_document)
         with self.assertRaises(services.VerificationError):
             services.approve(duplicate, self.admin)
 
@@ -115,6 +117,7 @@ class VerificationTests(APITestCase):
         response = self.client.get("/api/v1/verification/")
         self.assertEqual(response.data["identity_status"], "unverified")
         self.assertIsNone(response.data["latest_submission"])
+        self.assertEqual(response.data["can_submit"], ["nida", "driving_licence", "passport"])
 
     def test_admin_review_page_and_private_image(self):
         self._submit()
@@ -147,3 +150,112 @@ class VerificationTests(APITestCase):
         self.assertEqual(response.status_code, 302)
         verification.refresh_from_db()
         self.assertEqual(verification.status, IV.Status.APPROVED)
+
+
+@override_settings(
+    STORAGES={
+        "default": {"BACKEND": "django.core.files.storage.InMemoryStorage"},
+        "private": {"BACKEND": "django.core.files.storage.InMemoryStorage"},
+        "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+    }
+)
+class DocumentAndPortraitTests(APITestCase):
+    """NIDA, driving licence or passport; the fundi's photo is always cut from the approved document."""
+
+    def setUp(self):
+        self.user = make_user()
+        self.admin = make_user(is_staff=True)
+        self.client.force_authenticate(self.user)
+
+    def _submit(self, document_type, number, **extra):
+        return self.client.post(
+            "/api/v1/verification/",
+            {
+                "document_type": document_type,
+                "document_number": number,
+                "full_name": "Juma Hassan",
+                "date_of_birth": "1990-01-15",
+                "id_front_image": image_file("front.jpg"),
+                "selfie_image": image_file("selfie.jpg"),
+                **extra,
+            },
+            format="multipart",
+        )
+
+    def test_document_number_rules(self):
+        self.assertEqual(self._submit("passport", "12345").status_code, 400)
+        self.assertEqual(self._submit("driving_licence", "abc").status_code, 400)
+        response = self._submit("passport", "ab 1234567")
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(IV.objects.get().document_number, "AB1234567")
+        self.assertIsNone(IV.objects.get().dob_matches_nida)
+
+    def test_portrait_is_cut_on_submit_and_becomes_the_fundi_photo_on_approval(self):
+        fundi = make_fundi(self.user)
+        self._submit("driving_licence", "4000123456")
+        verification = IV.objects.get()
+        self.assertTrue(verification.portrait)
+        self.assertEqual(verification.portrait_method, "template")  # blank test image: no face
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.portrait)  # not public until approved
+
+        services.approve(verification, self.admin)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.portrait.name, verification.portrait.name)
+        response = self.client.get(f"/api/v1/fundis/{fundi.pk}/")
+        self.assertTrue(response.data["photo"].endswith(".jpg"))
+
+    def test_face_detection_box_is_used_when_a_face_is_found(self):
+        from unittest import mock
+
+        with mock.patch("apps.verification.portrait.detect_face_box", return_value=(0.1, 0.1, 0.4, 0.5)):
+            self._submit("nida", NIDA)
+        verification = IV.objects.get()
+        self.assertEqual(verification.portrait_method, "face_detection")
+        self.assertEqual(verification.portrait_box, [0.1, 0.1, 0.4, 0.5])
+
+    def test_upgrade_to_nida_but_never_downgrade(self):
+        self._submit("passport", "AB1234567")
+        services.approve(IV.objects.get(), self.admin)
+        self.user.refresh_from_db()
+        status = self.client.get("/api/v1/verification/").data
+        self.assertEqual(status["current_document"]["document_type"], "passport")
+        self.assertEqual(status["can_submit"], ["nida", "driving_licence"])
+
+        self.assertEqual(self._submit("passport", "AB7654321").status_code, 400)
+        self.assertEqual(self._submit("nida", NIDA).status_code, 201)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.identity_status, User.IdentityStatus.VERIFIED)  # still verified meanwhile
+
+        nida = IV.objects.get(document_type="nida")
+        services.approve(nida, self.admin)
+        self.user.refresh_from_db()
+        nida.refresh_from_db()
+        self.assertEqual(self.user.portrait.name, nida.portrait.name)
+        self.assertEqual(IV.objects.get(document_type="passport").status, IV.Status.SUPERSEDED)
+        self.assertEqual(self.client.get("/api/v1/verification/").data["can_submit"], [])
+
+    def test_rejected_upgrade_keeps_current_document(self):
+        self._submit("passport", "AB1234567")
+        services.approve(IV.objects.get(), self.admin)
+        self._submit("nida", NIDA)
+        services.reject(IV.objects.get(document_type="nida"), self.admin, IV.RejectionReason.UNREADABLE)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.identity_status, User.IdentityStatus.VERIFIED)
+        self.assertTrue(self.user.portrait)
+
+    def test_staff_can_recrop_and_revoke_removes_photo(self):
+        self._submit("nida", NIDA)
+        verification = IV.objects.get()
+        services.approve(verification, self.admin)
+        services.recrop_portrait(verification, [0.2, 0.2, 0.5, 0.5])
+        verification.refresh_from_db()
+        self.assertEqual(verification.portrait_method, "manual")
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.portrait.name, verification.portrait.name)
+        with self.assertRaises(services.VerificationError):
+            services.recrop_portrait(verification, [2, 0, 0.5, 0.5])
+
+        services.revoke(self.user, self.admin, "Fake ID")
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.portrait)

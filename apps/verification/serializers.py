@@ -15,7 +15,12 @@ def validate_image_size(image):
 
 
 class VerificationSubmitSerializer(serializers.Serializer):
-    nida_number = serializers.CharField(max_length=32, write_only=True)
+    document_type = serializers.ChoiceField(
+        choices=IdentityVerification.DocumentType.choices, default=IdentityVerification.DocumentType.NIDA
+    )
+    document_number = serializers.CharField(max_length=32, write_only=True, required=False)
+    # Older clients send the NIDA number under this name.
+    nida_number = serializers.CharField(max_length=32, write_only=True, required=False)
     full_name = serializers.CharField(max_length=150)
     date_of_birth = serializers.DateField()
     id_front_image = serializers.ImageField(validators=[validate_image_size])
@@ -31,6 +36,14 @@ class VerificationSubmitSerializer(serializers.Serializer):
             raise serializers.ValidationError("Check the date of birth.")
         return value
 
+    def validate(self, attrs):
+        number = attrs.pop("document_number", None) or attrs.pop("nida_number", None)
+        attrs.pop("nida_number", None)
+        if not number:
+            raise serializers.ValidationError({"document_number": "This field is required."})
+        attrs["document_number"] = number
+        return attrs
+
 
 class VerificationStatusSerializer(serializers.ModelSerializer):
     """What the user sees about their own latest submission. No images, no full NIDA number."""
@@ -38,14 +51,19 @@ class VerificationStatusSerializer(serializers.ModelSerializer):
     rejection_reason_display = serializers.CharField(
         source="get_rejection_reason_display", read_only=True
     )
+    document_type_display = serializers.CharField(source="get_document_type_display", read_only=True)
+    portrait = serializers.ImageField(read_only=True)
 
     class Meta:
         model = IdentityVerification
         fields = [
             "id",
             "status",
+            "document_type",
+            "document_type_display",
             "full_name",
-            "nida_last4",
+            "document_last4",
+            "portrait",
             "rejection_reason",
             "rejection_reason_display",
             "created_at",

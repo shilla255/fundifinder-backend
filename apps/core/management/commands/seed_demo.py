@@ -13,6 +13,7 @@ from apps.accounts.models import User
 from apps.bookings.models import Booking, Review
 from apps.catalog.models import ServiceCategory
 from apps.core.geo import make_point
+from apps.core.placeholder_art import id_card as work_photo_card
 from apps.core.placeholder_art import work_photo
 from apps.fundis.models import FundiProfile, FundiService, WorkPhoto
 
@@ -156,9 +157,9 @@ class Command(BaseCommand):
         for i, (handle, name, business, (lat, lng), area, district, region, years, response, bio,
                 services) in enumerate(FUNDIS):
             user = self._user(f"{handle}@demo.fundifinder", name, f"+2557120001{i + 1:02d}")
-            user.identity_status = User.IdentityStatus.VERIFIED
             user.onboarding_role = User.Role.FUNDI
-            user.save(update_fields=["identity_status", "onboarding_role"])
+            user.save(update_fields=["onboarding_role"])
+            self._identity(user, i, reset=options["reset_photos"])
             profile, _ = FundiProfile.objects.update_or_create(
                 user=user,
                 defaults={
@@ -205,6 +206,44 @@ class Command(BaseCommand):
         user.set_password(PASSWORD)
         user.save()
         return user
+
+    # --- identity ---------------------------------------------------------------------
+
+    def _identity(self, user, index, reset):
+        """Approved ID document with a mock card, so the avatar comes through the real
+        portrait pipeline (mostly NIDA; a couple of driving licences and passports)."""
+        from datetime import date
+
+        from apps.verification import services as verification
+        from apps.verification.models import IdentityVerification as IV
+
+        approved = IV.objects.filter(user=user, status=IV.Status.APPROVED).first()
+        if approved and approved.portrait and user.portrait and not reset:
+            return
+        # Start this demo person's identity from scratch.
+        IV.objects.filter(user=user).delete()
+        user.identity_status = User.IdentityStatus.UNVERIFIED
+        user.portrait = ""
+        user.save(update_fields=["identity_status", "portrait"])
+
+        doc = {3: "driving_licence", 7: "passport"}.get(index, "nida")
+        dob = date(1980 + index, 1 + index % 12, 1 + (index * 3) % 27)
+        number = {
+            "nida": f"{dob:%Y%m%d}{5000 + index:05d}{index:05d}{17 + index:02d}",
+            "driving_licence": f"40{index:02d}{123456 + index:06d}",
+            "passport": f"AB{1234560 + index:07d}",
+        }[doc]
+        card = work_photo_card(doc, user.full_name, number, seed=index)
+        submission = verification.submit(
+            user,
+            document_type=doc,
+            document_number=number,
+            full_name=user.full_name,
+            date_of_birth=dob,
+            id_front_image=ContentFile(card, name="front.jpg"),
+            selfie_image=ContentFile(card, name="selfie.jpg"),
+        )
+        verification.approve(submission, reviewer=None)
 
     # --- photos -------------------------------------------------------------------------
 
