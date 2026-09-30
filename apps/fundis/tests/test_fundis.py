@@ -167,6 +167,14 @@ class DiscoveryTests(APITestCase):
         ids = [r["id"] for r in self._search(min_rating=4.9).data["results"]]
         self.assertEqual(ids, [str(self.cheap.id)])
 
+    def test_text_search_matches_name_and_service(self):
+        FundiProfile.objects.filter(pk=self.cheap.pk).update(business_name="Juma Electric")
+        FundiProfile.objects.filter(pk=self.pricey.pk).update(business_name="Neema Works")
+        ids = [r["id"] for r in self._search(q="juma").data["results"]]
+        self.assertEqual(ids, [str(self.cheap.id)])
+        self.assertEqual(len(self._search(q=self.cat.name_sw[:4]).data["results"]), 2)
+        self.assertEqual(self._search(q="zzz-nothing").data["results"], [])
+
     def test_sorting(self):
         by_rating = [r["id"] for r in self._search(sort="rating").data["results"]]
         self.assertEqual(by_rating, [str(self.pricey.id), str(self.cheap.id)])

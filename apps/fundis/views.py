@@ -2,7 +2,7 @@ from django.conf import settings
 from django.contrib.gis.db.models.functions import Distance
 from django.contrib.gis.measure import D
 from django.db import IntegrityError
-from django.db.models import F, Prefetch
+from django.db.models import F, Prefetch, Q
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
@@ -138,6 +138,17 @@ class FundiSearchView(_PublicFundiMixin, generics.ListAPIView):
             qs = qs.filter(rating_avg__gte=data["min_rating"])
         if data.get("max_price") is not None:
             qs = qs.filter(min_price__lte=data["max_price"])
+        if data.get("q"):
+            # Free text: business name, area, or a service the fundi offers (either language).
+            text = data["q"]
+            offered = FundiService.objects.filter(is_active=True).filter(
+                Q(category__name_en__icontains=text) | Q(category__name_sw__icontains=text)
+                | Q(category__parent__name_en__icontains=text) | Q(category__parent__name_sw__icontains=text)
+            )
+            qs = qs.filter(
+                Q(business_name__icontains=text) | Q(area_text__icontains=text) | Q(district__icontains=text)
+                | Q(pk__in=offered.values("fundi_id"))
+            )
         order = {
             "distance": ("-is_available", "distance", "-score"),
             "rating": ("-score", "-completed_jobs_count", "distance"),

@@ -253,6 +253,7 @@ class FundiSearchSerializer(serializers.Serializer):
     max_price = serializers.IntegerField(min_value=0, required=False)
     available_now = serializers.BooleanField(required=False, default=False)
     sort = serializers.ChoiceField(choices=SORTS, required=False, default="distance")
+    q = serializers.CharField(max_length=60, required=False, allow_blank=True, trim_whitespace=True)
 
 
 class TopFundisSerializer(serializers.Serializer):
