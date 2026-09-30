@@ -189,6 +189,7 @@ class Command(BaseCommand):
             self.stdout.write(f"  ✓ {business}")
 
         self._reviews(fundis, clients, rng)
+        self._staff_demo(fundis, clients)
 
         if self.downloads_failed:
             self.stdout.write(self.style.WARNING(
@@ -196,7 +197,8 @@ class Command(BaseCommand):
             ))
         self.stdout.write(self.style.SUCCESS(
             f"Demo data ready: {len(fundis)} fundis, {len(clients)} clients. Log in with any demo email "
-            f"(e.g. client@demo.fundifinder, juma@demo.fundifinder) and password '{PASSWORD}'."
+            f"(e.g. client@demo.fundifinder, juma@demo.fundifinder, staff: admin@demo.fundifinder) "
+            f"and password '{PASSWORD}'."
         ))
 
     def _user(self, email, name, phone):
@@ -244,6 +246,57 @@ class Command(BaseCommand):
             selfie_image=ContentFile(card, name="selfie.jpg"),
         )
         verification.approve(submission, reviewer=None)
+
+    # --- staff console demo ---------------------------------------------------------------
+
+    def _staff_demo(self, fundis, clients):
+        """A staff account, two fundi applicants waiting for ID review, and one open dispute."""
+        from datetime import date
+
+        from apps.bookings.models import Booking, BookingEvent
+        from apps.verification import services as verification
+        from apps.verification.models import IdentityVerification as IV
+
+        admin = self._user("admin@demo.fundifinder", "Admin FundiFinder", "+255712000300")
+        admin.is_staff = True
+        admin.save(update_fields=["is_staff"])
+
+        applicants = [
+            ("shabani", "Shabani Mfinanga", "Shabani Tiles & Masonry", "nida", "19880603123450000321", date(1988, 6, 3), 20),
+            ("mwanaidi", "Mwanaidi Said", "Mwanaidi Tailoring & Repairs", "passport", "AB7654321", date(1992, 11, 9), 21),
+        ]
+        for handle, name, business, doc, number, dob, seed in applicants:
+            user = self._user(f"{handle}@demo.fundifinder", name, f"+2557120004{seed:02d}")
+            user.onboarding_role = User.Role.FUNDI
+            user.save(update_fields=["onboarding_role"])
+            FundiProfile.objects.update_or_create(
+                user=user,
+                defaults={"business_name": business, "base_location": make_point(-6.80, 39.25), "area_text": "Kinondoni",
+                          "region": "Dar es Salaam", "status": FundiProfile.Status.ACTIVE},
+            )
+            if IV.objects.filter(user=user, status=IV.Status.PENDING).exists():
+                continue
+            IV.objects.filter(user=user).delete()
+            user.identity_status = User.IdentityStatus.UNVERIFIED
+            user.save(update_fields=["identity_status"])
+            card = work_photo_card(doc, name, number, seed=seed)
+            verification.submit(
+                user, document_type=doc, document_number=number, full_name=name, date_of_birth=dob,
+                id_front_image=ContentFile(card, name="front.jpg"), selfie_image=ContentFile(card, name="selfie.jpg"),
+            )
+
+        profile, _ = fundis[1]  # Neema Plumbing Works
+        if not Booking.objects.filter(fundi=profile, status=Booking.Status.DISPUTED).exists():
+            booking = Booking.objects.create(
+                client=clients[2], fundi=profile, category=profile.services.first().category,
+                description="Water tank still leaking after repair", job_location=profile.base_location,
+                job_address=profile.area_text, status=Booking.Status.DISPUTED, quoted_price_tzs=40000,
+                dispute_reason="The leak came back the next day and the fundi is not answering.",
+                payment_status=Booking.PaymentStatus.DISPUTED,
+            )
+            BookingEvent.objects.create(booking=booking, from_status="completed", to_status="disputed", actor=clients[2],
+                                        actor_role="client", note=booking.dispute_reason)
+        self.stdout.write("  ✓ Staff demo: admin@demo.fundifinder, 2 ID applications, 1 dispute")
 
     # --- photos -------------------------------------------------------------------------
 

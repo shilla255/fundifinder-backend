@@ -70,6 +70,7 @@ python manage.py runserver
 | `accounts` | `User` (one account per person), Google Sign-In, phone OTP (off until an SMS gateway exists), JWT |
 | `catalog` | `ServiceCategory` (two levels, English + Kiswahili names) |
 | `fundis` | `FundiProfile` (optional provider side of a user), `FundiService` (categories + pricing), geo search |
+| `staff` | Staff console API (`is_staff` only) and the `StaffAction` audit log |
 | `verification` | `IdentityVerification` (NIDA / licence / passport + selfie, manual review), portrait extraction, audit log |
 | `bookings` | `Booking` state machine, `BookingEvent` history, `Review` |
 | `notifications` | In-app `Notification`, SMS backend interface (console for now), Swahili/English texts |
@@ -151,6 +152,13 @@ expire unanswered requests and auto-close completed jobs after `BOOKING_AUTO_CLO
 | POST | `/api/v1/fundi/work-photos/reorder/` | `{"ids": [...]}` — order clients see |
 | GET | `/api/v1/fundi/stats/` | Dashboard: views, saves, rating, reply time, acceptance, earnings, last 6 months |
 | GET/POST | `/api/v1/verification/` | Own identity status (`current_document`, `can_submit`) / submit a document |
+| GET | `/api/v1/admin/overview/` | **Staff.** Counts, pending IDs, disputes, 14-day activity, recent staff actions |
+| GET | `/api/v1/admin/verifications/?status=&q=` | **Staff.** Review queue (oldest first); `/{id}/`, `/{id}/image/{field}/` (private stream) |
+| POST | `/api/v1/admin/verifications/{id}/approve\|reject\|recrop/` | **Staff.** `reject {reason, note}`, `recrop {box: [l, t, w, h]}` |
+| GET/POST | `/api/v1/admin/fundis/?status=&q=`, `/{id}/suspend\|ban\|reinstate/` | **Staff.** Suspend/ban need `reason`; cancels open jobs |
+| GET/POST | `/api/v1/admin/users/?role=client\|fundi\|staff&q=`, `/{id}/deactivate\|activate\|reverify/` | **Staff.** |
+| GET/POST | `/api/v1/admin/bookings/?status=&q=`, `/{id}/`, `/{id}/cancel\|resolve_close\|resolve_cancel/` | **Staff.** `note` required; both sides are notified |
+| GET | `/api/v1/admin/actions/?target=` | **Staff.** Audit log (`StaffAction`) |
 | GET/POST | `/api/v1/bookings/` | `?as=client` (default) or `?as=fundi`, `?status=` |
 | POST | `/api/v1/bookings/{id}/accept\|decline\|start\|complete\|confirm\|cancel\|dispute/` | `note` required for cancel/dispute |
 | POST | `/api/v1/bookings/{id}/review/` | Client, after completion |

@@ -51,6 +51,7 @@ def reinstate(profile: FundiProfile) -> FundiProfile:
     profile.status = FundiProfile.Status.ACTIVE
     profile.status_reason = ""
     profile.save(update_fields=["status", "status_reason", "updated_at"])
+    transaction.on_commit(lambda: notify(profile.user, "fundi.reinstated"))
     return profile
 
 

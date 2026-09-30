@@ -13,6 +13,7 @@ api_v1 = [
     path("", include("apps.verification.urls")),
     path("", include("apps.bookings.urls")),
     path("", include("apps.notifications.urls")),
+    path("admin/", include("apps.staff.urls")),
 ]
 
 urlpatterns = [

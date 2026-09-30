@@ -58,6 +58,7 @@ INSTALLED_APPS = [
     "apps.verification",
     "apps.bookings",
     "apps.notifications",
+    "apps.staff",
 ]
 
 MIDDLEWARE = [

@@ -26,6 +26,9 @@ TRANSITIONS = {
     "cancel": ({S.REQUESTED, S.ACCEPTED}, S.CANCELLED, {P.CLIENT, P.FUNDI, P.SYSTEM, P.ADMIN}),
     "dispute": ({S.IN_PROGRESS, S.COMPLETED}, S.DISPUTED, {P.CLIENT, P.FUNDI}),
     "expire": ({S.REQUESTED}, S.EXPIRED, {P.SYSTEM}),
+    # Support settles a dispute: the job counts as done, or it is called off.
+    "resolve_close": ({S.DISPUTED}, S.CLOSED, {P.ADMIN}),
+    "resolve_cancel": ({S.DISPUTED}, S.CANCELLED, {P.ADMIN}),
 }
 
 # Who hears about each new status (the other party, or both for system actions).
@@ -187,13 +190,34 @@ def transition(booking: Booking, action: str, *, actor=None, role: str, note: st
     elif action == "dispute":
         booking.dispute_reason = note
         booking.payment_status = Booking.PaymentStatus.DISPUTED
+    elif action == "resolve_close":
+        booking.closed_at = now
+        booking.completed_at = booking.completed_at or now
+        booking.payment_status = Booking.PaymentStatus.PAID_CASH
+        FundiProfile.objects.filter(pk=booking.fundi_id).update(
+            completed_jobs_count=F("completed_jobs_count") + 1
+        )
+    elif action == "resolve_cancel":
+        booking.cancelled_at = now
+        booking.cancelled_by = role
+        booking.cancellation_reason = note
+        booking.payment_status = Booking.PaymentStatus.UNPAID
 
     booking.save()
     _log(booking, from_status, actor, role, note)
     if action in ("accept", "decline"):
         _update_response_time(booking.fundi_id)
-    transaction.on_commit(lambda: _notify(booking, role))
+    if action.startswith("resolve_"):
+        transaction.on_commit(lambda: _notify_resolved(booking, note))
+    else:
+        transaction.on_commit(lambda: _notify(booking, role))
     return booking
+
+
+def _notify_resolved(booking: Booking, note: str):
+    data = {"booking_id": str(booking.pk), "reference": booking.reference}
+    for user in (booking.client, booking.fundi.user):
+        notify(user, "booking.resolved", data=data, ref=booking.reference, note=note or "—")
 
 
 def _update_response_time(fundi_id):

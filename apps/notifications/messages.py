@@ -48,6 +48,18 @@ MESSAGES = {
         "en": ("Please verify again", "Please verify your identity again to stay visible to clients."),
         "sw": ("Thibitisha tena", "Tafadhali thibitisha utambulisho wako tena ili uendelee kuonekana kwa wateja."),
     },
+    "booking.resolved": {
+        "en": ("Dispute resolved", "Our team has resolved job {ref}: {note}"),
+        "sw": ("Malalamiko yamesuluhishwa", "Timu yetu imesuluhisha kazi {ref}: {note}"),
+    },
+    "fundi.reinstated": {
+        "en": ("Profile restored", "Your fundi profile is active again. Welcome back!"),
+        "sw": ("Wasifu umerejeshwa", "Wasifu wako wa fundi uko hai tena. Karibu tena!"),
+    },
+    "account.deactivated": {
+        "en": ("Account disabled", "Your FundiFinder account has been disabled. Contact support for details."),
+        "sw": ("Akaunti imezimwa", "Akaunti yako ya FundiFinder imezimwa. Wasiliana nasi kwa maelezo."),
+    },
     "fundi.suspended": {
         "en": ("Fundi profile suspended", "Your fundi profile has been suspended. Contact support for details."),
         "sw": ("Wasifu wa fundi umesimamishwa", "Wasifu wako wa fundi umesimamishwa. Wasiliana nasi kwa maelezo."),

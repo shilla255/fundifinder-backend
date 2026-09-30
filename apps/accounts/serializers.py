@@ -23,9 +23,10 @@ class UserSerializer(serializers.ModelSerializer):
             "onboarding_role",
             "identity_status",
             "is_fundi",
+            "is_staff",
             "date_joined",
         ]
-        read_only_fields = ["id", "email", "avatar_url", "identity_status", "date_joined"]
+        read_only_fields = ["id", "email", "avatar_url", "identity_status", "is_staff", "date_joined"]
 
     def get_is_fundi(self, obj) -> bool:
         return hasattr(obj, "fundi_profile")
