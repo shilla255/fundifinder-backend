@@ -46,6 +46,25 @@ class PublicReviewSerializer(serializers.ModelSerializer):
         return name.split()[0] if name else "Client"
 
 
+class FeaturedReviewSerializer(PublicReviewSerializer):
+    """A review highlighted on the home screen, with the fundi and service it was for."""
+
+    category = SubcategorySerializer(source="booking.category", read_only=True)
+    fundi = serializers.SerializerMethodField()
+
+    class Meta(PublicReviewSerializer.Meta):
+        fields = [*PublicReviewSerializer.Meta.fields, "fundi"]
+
+    def get_fundi(self, obj):
+        request = self.context.get("request")
+        photo = obj.fundi.photo
+        return {
+            "id": str(obj.fundi_id),
+            "business_name": obj.fundi.business_name,
+            "photo": (request.build_absolute_uri(photo.url) if request else photo.url) if photo else None,
+        }
+
+
 class BookingSerializer(serializers.ModelSerializer):
     """Contact details and exact coordinates are only shown to the other party
     once the fundi has accepted."""

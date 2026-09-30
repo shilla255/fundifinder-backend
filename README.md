@@ -23,7 +23,7 @@ docker compose up --build                        # first build takes a few minut
 In a second terminal:
 
 ```powershell
-docker compose exec web python manage.py seed_demo          # categories + verified demo fundis
+docker compose exec web python manage.py seed_demo          # categories, 12 demo fundis with photos + reviews (--offline: generated art)
 docker compose exec web python manage.py createsuperuser    # your admin login
 docker compose exec web python manage.py test apps          # run the test suite
 ```
@@ -125,9 +125,13 @@ expire unanswered requests and auto-close completed jobs after `BOOKING_AUTO_CLO
 | POST | `/api/v1/auth/dev-login/` | **DEBUG only**: email + password → JWT, for `seed_demo` accounts |
 | GET/PATCH | `/api/v1/me/` | Own account |
 | GET | `/api/v1/categories/` | Public |
-| GET | `/api/v1/fundis/search/?lat=&lng=&radius_km=&category=` | Public, nearest first |
-| GET | `/api/v1/fundis/{id}/` | Public fundi profile (includes `approx_location`, rounded to ~1 km) |
+| GET | `/api/v1/fundis/search/?lat=&lng=&radius_km=&category=` | Public. Filters: `min_rating`, `max_price`, `available_now`; `sort=distance\|rating\|jobs\|price` (available first, then nearest) |
+| GET | `/api/v1/fundis/top/?lat=&lng=&radius_km=&category=&limit=` | Public "Mafundi bora": rated fundis by fair (Bayesian) score, location optional |
+| GET | `/api/v1/reviews/featured/?limit=` | Public: good written reviews, one per category where possible, reshuffled daily |
+| GET | `/api/v1/fundis/{id}/` | Public fundi profile (includes `approx_location` rounded to ~1 km, `work_photos`, `badges`, `rating_breakdown`) |
 | GET | `/api/v1/fundis/{id}/reviews/` | Public reviews (reviewer first name only) |
+| GET/POST | `/api/v1/me/favorites/` | Saved fundis; POST `{fundi_id}` |
+| DELETE | `/api/v1/me/favorites/{fundi_id}/` | Remove a saved fundi |
 | POST/GET/PATCH | `/api/v1/fundi/profile/` | Become a fundi / manage own profile (`latitude`, `longitude`) |
 | POST | `/api/v1/fundi/profile/activate/`, `/pause/` | Publish or hide own profile |
 | CRUD | `/api/v1/fundi/services/` | Own services (max `FUNDI_MAX_SERVICES`) |

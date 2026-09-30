@@ -1,12 +1,22 @@
+import random
+
 from django.db.models import Q
-from rest_framework import mixins, status, viewsets
+from django.utils import timezone
+from rest_framework import generics, mixins, status, viewsets
+from rest_framework.permissions import AllowAny
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from . import services
-from .models import Booking
-from .serializers import ActionSerializer, BookingCreateSerializer, BookingSerializer, ReviewSerializer
+from .models import Booking, Review
+from .serializers import (
+    ActionSerializer,
+    BookingCreateSerializer,
+    BookingSerializer,
+    FeaturedReviewSerializer,
+    ReviewSerializer,
+)
 
 # Actions whose note is required (the other side deserves a reason).
 NOTE_REQUIRED = {"cancel", "dispute"}
@@ -107,3 +117,39 @@ class BookingViewSet(
         except services.BookingError as exc:
             raise ValidationError({"detail": str(exc)}) from exc
         return Response(ReviewSerializer(review).data, status=status.HTTP_201_CREATED)
+
+
+class FeaturedReviewsView(generics.ListAPIView):
+    """Good, written reviews from different service categories for the home screen.
+
+    One per top-level category where possible, shuffled once a day so the page
+    stays fresh without changing on every refresh.
+    """
+
+    serializer_class = FeaturedReviewSerializer
+    permission_classes = [AllowAny]
+    pagination_class = None
+
+    def get_queryset(self):
+        from apps.fundis.models import FundiProfile
+
+        try:
+            limit = max(1, min(int(self.request.query_params.get("limit", 6)), 20))
+        except ValueError:
+            limit = 6
+        candidates = list(
+            Review.objects.filter(rating__gte=4, fundi__in=FundiProfile.objects.bookable())
+            .exclude(comment="")
+            .select_related("client", "fundi", "booking__category__parent")
+            .order_by("-created_at")[:200]
+        )
+        random.Random(timezone.localdate().toordinal()).shuffle(candidates)
+        picked, seen = [], set()
+        for review in candidates:  # first pass: one per category
+            category = review.booking.category
+            top = category.parent_id or category.pk
+            if top not in seen:
+                seen.add(top)
+                picked.append(review)
+        picked += [r for r in candidates if r not in picked]  # then fill up
+        return picked[:limit]

@@ -190,8 +190,22 @@ def transition(booking: Booking, action: str, *, actor=None, role: str, note: st
 
     booking.save()
     _log(booking, from_status, actor, role, note)
+    if action in ("accept", "decline"):
+        _update_response_time(booking.fundi_id)
     transaction.on_commit(lambda: _notify(booking, role))
     return booking
+
+
+def _update_response_time(fundi_id):
+    """Average minutes the fundi takes to answer requests (last 20 answers) — shown as a badge."""
+    recent = (
+        Booking.objects.filter(fundi_id=fundi_id, responded_at__isnull=False)
+        .order_by("-responded_at")
+        .values_list("created_at", "responded_at")[:20]
+    )
+    minutes = [max((answered - asked).total_seconds() / 60, 0) for asked, answered in recent]
+    if minutes:
+        FundiProfile.objects.filter(pk=fundi_id).update(avg_response_minutes=round(sum(minutes) / len(minutes)))
 
 
 def cancel_open_bookings_for_fundi(fundi: FundiProfile, reason: str, actor=None):

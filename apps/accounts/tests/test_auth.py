@@ -214,3 +214,14 @@ class FirebaseSignInTests(APITestCase):
     def test_not_configured(self):
         response, _ = self._post(FIREBASE_CLAIMS)
         self.assertEqual(response.status_code, 400)
+
+
+class OnboardingRoleTests(APITestCase):
+    def test_role_saved_from_welcome_screen(self):
+        user = make_user()
+        self.client.force_authenticate(user)
+        response = self.client.patch("/api/v1/me/", {"onboarding_role": "fundi"}, format="json")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["onboarding_role"], "fundi")
+        bad = self.client.patch("/api/v1/me/", {"onboarding_role": "boss"}, format="json")
+        self.assertEqual(bad.status_code, 400)

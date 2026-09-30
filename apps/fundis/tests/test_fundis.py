@@ -1,8 +1,15 @@
+from django.test import override_settings
 from rest_framework.test import APITestCase
 
 from apps.accounts.models import User
 from apps.core.testing import FAR_AWAY, MWENGE, SINZA, make_category, make_fundi, make_user
 from apps.fundis.models import FundiProfile
+
+IN_MEMORY_STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.InMemoryStorage"},
+    "private": {"BACKEND": "django.core.files.storage.InMemoryStorage"},
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+}
 
 
 class BecomeFundiTests(APITestCase):
@@ -81,14 +88,21 @@ class SearchTests(APITestCase):
         make_fundi(category=self.plumbing)
         self.assertEqual(self._search(category="electrical").data["results"], [])
 
-    def test_excludes_unverified_paused_unavailable_and_far(self):
+    def test_excludes_unverified_paused_and_far(self):
         make_fundi(verified=False)
         make_fundi(active=False)
-        make_fundi(is_available=False)
         make_fundi(location=FAR_AWAY)
         suspended = make_fundi()
         FundiProfile.objects.filter(pk=suspended.pk).update(status=FundiProfile.Status.SUSPENDED)
         self.assertEqual(self._search(radius_km=50).data["results"], [])
+
+    def test_busy_fundis_listed_last_unless_available_now(self):
+        busy = make_fundi(location=MWENGE, is_available=False)
+        free = make_fundi(location=SINZA)
+        ids = [r["id"] for r in self._search(radius_km=10).data["results"]]
+        self.assertEqual(ids, [str(free.id), str(busy.id)])
+        ids = [r["id"] for r in self._search(radius_km=10, available_now="true").data["results"]]
+        self.assertEqual(ids, [str(free.id)])
 
     def test_respects_fundi_service_radius(self):
         make_fundi(radius_km=2)  # client is ~3.3 km away
@@ -127,3 +141,69 @@ class PublicReviewsTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["results"][0]["reviewer"], "Rehema")
         self.assertEqual(response.data["results"][0]["rating"], 5)
+
+
+class DiscoveryTests(APITestCase):
+    """Filters, sorting, top-rated ranking, portfolio and favourites."""
+
+    def setUp(self):
+        from apps.fundis.models import FundiService
+
+        self.cat = make_category("electrical")
+        self.cheap = make_fundi(category=self.cat, location=SINZA)
+        self.pricey = make_fundi(category=self.cat, location=MWENGE)
+        FundiService.objects.filter(fundi=self.cheap).update(starting_price_tzs=10000)
+        FundiService.objects.filter(fundi=self.pricey).update(starting_price_tzs=40000)
+        # One lucky 5.0 vs a solid 4.8 over 40 reviews: the fair score prefers the solid one.
+        FundiProfile.objects.filter(pk=self.cheap.pk).update(rating_avg=5, rating_count=1)
+        FundiProfile.objects.filter(pk=self.pricey.pk).update(rating_avg=4.8, rating_count=40, completed_jobs_count=40)
+
+    def _search(self, **params):
+        return self.client.get("/api/v1/fundis/search/", {"lat": MWENGE[0], "lng": MWENGE[1], "radius_km": 10, **params})
+
+    def test_price_and_rating_filters(self):
+        ids = [r["id"] for r in self._search(max_price=20000).data["results"]]
+        self.assertEqual(ids, [str(self.cheap.id)])
+        ids = [r["id"] for r in self._search(min_rating=4.9).data["results"]]
+        self.assertEqual(ids, [str(self.cheap.id)])
+
+    def test_sorting(self):
+        by_rating = [r["id"] for r in self._search(sort="rating").data["results"]]
+        self.assertEqual(by_rating, [str(self.pricey.id), str(self.cheap.id)])
+        by_price = [r["id"] for r in self._search(sort="price").data["results"]]
+        self.assertEqual(by_price, [str(self.cheap.id), str(self.pricey.id)])
+        result = self._search().data["results"][0]
+        self.assertIn("top_rated", result["badges"])
+        self.assertEqual(result["min_price_tzs"], 40000)
+
+    def test_top_rated_uses_fair_score(self):
+        response = self.client.get("/api/v1/fundis/top/")
+        self.assertEqual([r["id"] for r in response.data], [str(self.pricey.id), str(self.cheap.id)])
+        near = self.client.get("/api/v1/fundis/top/", {"lat": SINZA[0], "lng": SINZA[1], "radius_km": 1})
+        self.assertEqual([r["id"] for r in near.data], [str(self.cheap.id)])
+
+    @override_settings(STORAGES=IN_MEMORY_STORAGES)
+    def test_detail_has_portfolio_breakdown_and_counts_views(self):
+        from apps.core.testing import image_file
+        from apps.fundis.models import WorkPhoto
+
+        photo = WorkPhoto.objects.create(fundi=self.cheap, image=image_file("job.jpg"), caption="New wiring")
+        self.assertTrue(photo.thumbnail.name.endswith("_thumb.jpg"))
+        response = self.client.get(f"/api/v1/fundis/{self.cheap.id}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["work_photos"][0]["caption"], "New wiring")
+        self.assertTrue(response.data["cover_image"].startswith("http"))
+        self.assertEqual(set(response.data["rating_breakdown"]), {"5", "4", "3", "2", "1"})
+        self.cheap.refresh_from_db()
+        self.assertEqual(self.cheap.profile_views, 1)
+
+    def test_favorites(self):
+        user = make_user()
+        self.client.force_authenticate(user)
+        self.assertEqual(self.client.post("/api/v1/me/favorites/", {"fundi_id": str(self.cheap.id)}).status_code, 201)
+        listed = self.client.get("/api/v1/me/favorites/").data["results"]
+        self.assertEqual([r["id"] for r in listed], [str(self.cheap.id)])
+        self.assertTrue(listed[0]["is_favorite"])
+        self.assertTrue(self.client.get(f"/api/v1/fundis/{self.cheap.id}/").data["is_favorite"])
+        self.assertEqual(self.client.delete(f"/api/v1/me/favorites/{self.cheap.id}/").status_code, 204)
+        self.assertEqual(self.client.get("/api/v1/me/favorites/").data["results"], [])

@@ -20,6 +20,7 @@ class UserSerializer(serializers.ModelSerializer):
             "full_name",
             "avatar_url",
             "preferred_language",
+            "onboarding_role",
             "identity_status",
             "is_fundi",
             "date_joined",

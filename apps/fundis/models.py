@@ -3,9 +3,15 @@ from django.contrib.gis.db import models
 from django.contrib.gis.db.models.functions import Distance
 from django.contrib.gis.measure import D
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db.models import Exists, F, OuterRef, Q
+from django.db.models import Exists, ExpressionWrapper, F, FloatField, Min, OuterRef, Q, Subquery, Value
 
+from apps.core.images import make_thumbnail
 from apps.core.models import BaseModel
+
+# Bayesian rating: every fundi starts as if they had PRIOR_WEIGHT reviews of PRIOR_MEAN stars,
+# so one lucky 5-star review can't outrank forty genuine 4.8s.
+PRIOR_MEAN = 4.0
+PRIOR_WEIGHT = 5
 
 
 class FundiProfileQuerySet(models.QuerySet):
@@ -34,6 +40,26 @@ class FundiProfileQuerySet(models.QuerySet):
             distance__lte=F("service_radius_km") * 1000
         )
 
+    def with_score(self):
+        """Annotate `score`: the fair ranking used for "top rated"."""
+        return self.annotate(
+            score=ExpressionWrapper(
+                (F("rating_avg") * F("rating_count") + Value(PRIOR_MEAN * PRIOR_WEIGHT))
+                / (F("rating_count") + Value(PRIOR_WEIGHT)),
+                output_field=FloatField(),
+            )
+        )
+
+    def with_min_price(self):
+        """Annotate `min_price`: the lowest active "from" price in TZS (null if all on quote)."""
+        cheapest = (
+            FundiService.objects.filter(fundi=OuterRef("pk"), is_active=True, starting_price_tzs__isnull=False)
+            .values("fundi")
+            .annotate(p=Min("starting_price_tzs"))
+            .values("p")
+        )
+        return self.annotate(min_price=Subquery(cheapest))
+
     def offering(self, category):
         """Fundis with an active service in `category` or in one of its subcategories."""
         services = FundiService.objects.filter(
@@ -59,6 +85,7 @@ class FundiProfile(BaseModel):
     bio = models.TextField(blank=True)
     years_experience = models.PositiveSmallIntegerField(default=0)
     photo = models.ImageField(upload_to="fundis/photos/", blank=True)
+    cover_photo = models.ImageField(upload_to="fundis/covers/", blank=True)
 
     # Where the fundi works from. Never exposed to clients; they only see distance.
     base_location = models.PointField(geography=True, srid=4326, null=True, blank=True)
@@ -80,6 +107,9 @@ class FundiProfile(BaseModel):
     rating_avg = models.DecimalField(max_digits=3, decimal_places=2, default=0)
     rating_count = models.PositiveIntegerField(default=0)
     completed_jobs_count = models.PositiveIntegerField(default=0)
+    profile_views = models.PositiveIntegerField(default=0)
+    # Average minutes between a job request and the fundi's answer (last 20 answers).
+    avg_response_minutes = models.PositiveIntegerField(null=True, blank=True)
 
     objects = FundiProfileQuerySet.as_manager()
 
@@ -123,3 +153,39 @@ class FundiService(BaseModel):
 
     def __str__(self):
         return f"{self.fundi} – {self.category}"
+
+
+class WorkPhoto(BaseModel):
+    """A photo of a job the fundi has done — the portfolio clients browse."""
+
+    MAX_PER_FUNDI = 12
+
+    fundi = models.ForeignKey(FundiProfile, on_delete=models.CASCADE, related_name="work_photos")
+    image = models.ImageField(upload_to="fundis/work/")
+    thumbnail = models.ImageField(upload_to="fundis/work/thumbs/", blank=True, editable=False)
+    caption = models.CharField(max_length=140, blank=True)
+    category = models.ForeignKey(
+        "catalog.ServiceCategory", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    sort_order = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ["sort_order", "-created_at"]
+
+    def __str__(self):
+        return f"{self.fundi} – {self.caption or self.image.name}"
+
+    def save(self, *args, **kwargs):
+        # Small thumbnails keep lists fast and cheap on mobile data.
+        if self.image and not self.thumbnail:
+            self.thumbnail = make_thumbnail(self.image, max_size=480)
+        super().save(*args, **kwargs)
+
+
+class FavoriteFundi(BaseModel):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="favorite_fundis")
+    fundi = models.ForeignKey(FundiProfile, on_delete=models.CASCADE, related_name="favorited_by")
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [models.UniqueConstraint(fields=["user", "fundi"], name="unique_favorite_fundi")]

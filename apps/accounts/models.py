@@ -63,6 +63,13 @@ class User(AbstractBaseUser, PermissionsMixin):
     preferred_language = models.CharField(
         max_length=2, choices=Language.choices, default=Language.SWAHILI
     )
+    class Role(models.TextChoices):
+        CLIENT = "client", "Looking for a fundi"
+        FUNDI = "fundi", "I am a fundi"
+
+    # What the person chose on the welcome screen ("Natafuta fundi" / "Mimi ni fundi").
+    # It shapes their first experience only; one account can still do both.
+    onboarding_role = models.CharField(max_length=10, choices=Role.choices, blank=True)
     # Current identity state. The attempts behind it live in apps.verification.
     identity_status = models.CharField(
         max_length=32,

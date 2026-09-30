@@ -145,3 +145,49 @@ class BookingFlowTests(APITestCase):
         self.assertEqual(Booking.objects.get(pk=requested).status, Booking.Status.CANCELLED)
         self.assertEqual(Booking.objects.get(pk=accepted).status, Booking.Status.CANCELLED)
         self.assertEqual(FundiProfile.objects.get(pk=self.fundi.pk).status, FundiProfile.Status.SUSPENDED)
+
+
+class FeaturedReviewsAndResponseTimeTests(APITestCase):
+    def test_featured_reviews_one_per_category_and_only_good_written_ones(self):
+        from apps.bookings.models import Review
+        from apps.core.geo import make_point
+
+        def review(category, rating, comment):
+            fundi = make_fundi(category=category)
+            client = make_user(full_name="Rehema Juma")
+            booking = Booking.objects.create(
+                client=client, fundi=fundi, category=category, description="x",
+                job_location=make_point(*MWENGE), job_address="Mwenge", status=Booking.Status.CLOSED,
+            )
+            return Review.objects.create(booking=booking, fundi=fundi, client=client, rating=rating, comment=comment)
+
+        electrical, plumbing = make_category("electrical"), make_category("plumbing")
+        good_e = review(electrical, 5, "Safi sana")
+        good_p = review(plumbing, 4, "Alifika haraka")
+        review(plumbing, 2, "Hakufika")  # low rating: never featured
+        review(electrical, 5, "")  # no comment: never featured
+        data = self.client.get("/api/v1/reviews/featured/", {"limit": 2}).data
+        self.assertEqual({r["id"] for r in data}, {str(good_e.id), str(good_p.id)})
+        self.assertEqual(data[0]["reviewer"], "Rehema")
+        self.assertIn("business_name", data[0]["fundi"])
+
+    def test_response_time_recorded_on_accept(self):
+        category = make_category()
+        fundi = make_fundi(category=category)
+        client = make_user()
+        booking = services.create_booking(
+            client=client, fundi=fundi, category=category, description="x",
+            job_location=make_point_mwenge(), job_address="Mwenge",
+        )
+        Booking.objects.filter(pk=booking.pk).update(created_at=timezone.now() - timedelta(minutes=12))
+        services.transition(booking, "accept", actor=fundi.user, role=Booking.Party.FUNDI)
+        fundi.refresh_from_db()
+        self.assertEqual(fundi.avg_response_minutes, 12)
+        response = self.client.get(f"/api/v1/fundis/{fundi.id}/")
+        self.assertIn("quick_responder", response.data["badges"])
+
+
+def make_point_mwenge():
+    from apps.core.geo import make_point
+
+    return make_point(*MWENGE)

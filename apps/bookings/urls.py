@@ -1,8 +1,13 @@
 from rest_framework.routers import SimpleRouter
 
-from .views import BookingViewSet
+from django.urls import path
+
+from .views import BookingViewSet, FeaturedReviewsView
 
 router = SimpleRouter()
 router.register("bookings", BookingViewSet, basename="booking")
 
-urlpatterns = router.urls
+urlpatterns = [
+    path("reviews/featured/", FeaturedReviewsView.as_view(), name="featured-reviews"),
+    *router.urls,
+]
