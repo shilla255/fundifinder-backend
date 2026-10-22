@@ -1,6 +1,8 @@
 from django.urls import reverse
 from rest_framework import serializers
 
+from apps.notifications.models import Broadcast
+
 from apps.accounts.models import User
 from apps.bookings.models import Booking, BookingEvent
 from apps.fundis.models import FundiProfile
@@ -185,3 +187,39 @@ class RejectSerializer(serializers.Serializer):
 
 class BoxSerializer(serializers.Serializer):
     box = serializers.ListField(child=serializers.FloatField(min_value=0, max_value=1), min_length=4, max_length=4)
+
+
+class BroadcastSerializer(serializers.ModelSerializer):
+    sent_by = serializers.SerializerMethodField()
+    image = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Broadcast
+        fields = [
+            "id", "audience", "title_sw", "title_en", "body_sw", "body_en", "image", "link",
+            "sent_by", "recipients", "pushed", "created_at",
+        ]
+
+    def get_sent_by(self, obj):
+        return obj.sent_by.full_name if obj.sent_by else None
+
+    def get_image(self, obj):
+        request = self.context.get("request")
+        if not obj.image:
+            return None
+        return request.build_absolute_uri(obj.image.url) if request else obj.image.url
+
+
+class BroadcastInputSerializer(serializers.Serializer):
+    audience = serializers.ChoiceField(choices=Broadcast.Audience.choices)
+    title_sw = serializers.CharField(max_length=120)
+    title_en = serializers.CharField(max_length=120)
+    body_sw = serializers.CharField(max_length=500)
+    body_en = serializers.CharField(max_length=500)
+    link = serializers.RegexField(r"^/[a-z0-9/_-]*$", max_length=120, required=False, allow_blank=True)
+    image = serializers.ImageField(required=False, allow_null=True)
+
+    def validate_image(self, image):
+        if image and image.size > 2 * 1024 * 1024:
+            raise serializers.ValidationError("Image must be under 2 MB.")
+        return image

@@ -8,7 +8,7 @@ from django.db.models.functions import TruncDate
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from rest_framework import generics
+from rest_framework import generics, parsers
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -18,7 +18,9 @@ from apps.bookings import services as booking_services
 from apps.bookings.models import Booking
 from apps.fundis import services as fundi_services
 from apps.fundis.models import FundiProfile
-from apps.notifications.services import notify
+from apps.notifications.models import Broadcast
+from apps.notifications.push import push_to_users
+from apps.notifications.services import audience_users, notify, send_broadcast
 from apps.verification import services as verification_services
 from apps.verification.models import IdentityVerification as IV
 
@@ -26,6 +28,8 @@ from .models import StaffAction
 from .permissions import IsStaff
 from .serializers import (
     BookingSerializer,
+    BroadcastInputSerializer,
+    BroadcastSerializer,
     BoxSerializer,
     FundiSerializer,
     NoteSerializer,
@@ -343,3 +347,36 @@ class ActionLogView(generics.ListAPIView):
         qs = StaffAction.objects.select_related("actor")
         target = self.request.query_params.get("target")
         return qs.filter(target_id=target) if target else qs
+
+
+# --- broadcasts ----------------------------------------------------------------------
+
+
+class BroadcastListView(StaffView):
+    parser_classes = [parsers.MultiPartParser, parsers.FormParser, parsers.JSONParser]
+
+    def get(self, request):
+        counts = {a.value: audience_users(a.value).count() for a in Broadcast.Audience}
+        rows = Broadcast.objects.select_related("sent_by")[:50]
+        return Response({
+            "audiences": counts,
+            "results": BroadcastSerializer(rows, many=True, context={"request": request}).data,
+        })
+
+    def post(self, request):
+        """Send to an audience; `?test=1` sends only to the staff member as a preview."""
+        serializer = BroadcastInputSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        if request.query_params.get("test"):
+            lang = request.user.preferred_language
+            title, body = (data["title_sw"], data["body_sw"]) if lang == "sw" else (data["title_en"], data["body_en"])
+            image = data.get("image")
+            # Preview sends text only; the picture is stored when the real send happens.
+            pushed = push_to_users([request.user], title, body, data={"kind": "broadcast"})
+            return Response({"pushed": pushed, "image_checked": bool(image)})
+        broadcast = Broadcast.objects.create(sent_by=request.user, **data)
+        send_broadcast(broadcast)
+        log(request, "broadcast.send", "broadcast", broadcast.id, broadcast.title_en,
+            f"{broadcast.audience}: {broadcast.recipients} people, {broadcast.pushed} pushed")
+        return Response(BroadcastSerializer(broadcast, context={"request": request}).data, status=201)

@@ -172,6 +172,14 @@ OTP_MAX_PER_PHONE_PER_HOUR = 5
 
 SMS_BACKEND = env("SMS_BACKEND", default="apps.notifications.sms.ConsoleSMSBackend")
 
+# Push notifications. Dev logs them; production sets PUSH_BACKEND=apps.notifications.push.FCMBackend
+# plus a Firebase service-account key (a secret: env var or a file outside git).
+PUSH_BACKEND = env("PUSH_BACKEND", default="apps.notifications.push.ConsolePushBackend")
+FIREBASE_CREDENTIALS_FILE = env("FIREBASE_CREDENTIALS_FILE", default="")
+FIREBASE_CREDENTIALS_JSON = env("FIREBASE_CREDENTIALS_JSON", default="")
+# Public address of this server; push images must be reachable by the phone.
+PUBLIC_BASE_URL = env("PUBLIC_BASE_URL", default="http://localhost:8000")
+
 # --- Sensitive data -------------------------------------------------------
 
 FIELD_ENCRYPTION_KEY = env("FIELD_ENCRYPTION_KEY", default="")

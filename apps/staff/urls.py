@@ -15,5 +15,6 @@ urlpatterns = [
     path("bookings/", views.BookingListView.as_view(), name="staff-bookings"),
     path("bookings/<uuid:pk>/", views.BookingDetailView.as_view(), name="staff-booking"),
     path("bookings/<uuid:pk>/<str:action>/", views.BookingActionView.as_view(), name="staff-booking-action"),
+    path("broadcasts/", views.BroadcastListView.as_view(), name="staff-broadcasts"),
     path("actions/", views.ActionLogView.as_view(), name="staff-actions"),
 ]

@@ -194,3 +194,17 @@ Cloud Storage bucket for ID documents (`django-storages`, signed URLs) + Cloud S
 - **NIDA API:** see *Identity verification* above.
 - Push notifications (FCM), account deletion/anonymisation, trade licences/credentials per service,
   payment gateway (mobile money).
+
+## Push notifications and broadcasts
+
+Every in-app notification is also pushed to the user's phones (Firebase Cloud Messaging, free).
+Staff can send broadcasts from the web console (**Notifications**): Swahili + English text, an
+optional picture, an optional in-app link, and an audience (everyone, clients, fundis, verified fundis).
+
+| Setting | Meaning |
+|---|---|
+| `PUSH_BACKEND` | `apps.notifications.push.FCMBackend` in production. Default logs pushes to the console. |
+| `FIREBASE_CREDENTIALS_FILE` / `FIREBASE_CREDENTIALS_JSON` | Service-account key: Firebase console → Project settings → Service accounts → Generate new private key. **A secret: never commit it.** |
+| `PUBLIC_BASE_URL` | Public address of this server, so phones can download the picture in a push. |
+
+Phones register with `POST /api/v1/notifications/devices/` (`token`, `platform`); dead tokens are removed automatically.
