@@ -54,7 +54,7 @@ class FCMBackend(BasePushBackend):
             "token": token,
             "notification": {"title": title, "body": body, **({"image": image} if image else {})},
             "data": {k: str(v) for k, v in data.items()},
-            "android": {"priority": "HIGH", "notification": {"channel_id": "fundifinder"}},
+            "android": {"priority": "HIGH"},
         }
         r = requests.post(
             f"https://fcm.googleapis.com/v1/projects/{self._project}/messages:send",
